@@ -3,7 +3,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { Sun, Battery, Zap, AlertTriangle, Download, Upload, ChevronDown, ChevronRight, Settings, DollarSign, BarChart3, FileText, Fuel, Leaf, TrendingUp, Info, Share2, Save } from "lucide-react";
 
 const LOCATIONS = [
-  { name: 'Perth, WA', lat: -31.95, lon: 115.86 },
+  { name: 'Perthh, WA', lat: -31.95, lon: 115.86 },
   { name: 'Darwin, NT', lat: -12.46, lon: 130.84 },
   { name: 'Karratha, WA', lat: -20.74, lon: 116.85 },
   { name: 'Alice Springs, NT', lat: -23.70, lon: 133.88 },
