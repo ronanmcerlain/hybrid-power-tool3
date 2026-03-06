@@ -3,7 +3,7 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, L
 import { Sun, Battery, Zap, AlertTriangle, Download, Upload, ChevronDown, ChevronRight, Settings, DollarSign, BarChart3, FileText, Fuel, Leaf, TrendingUp, Info, Share2, Save } from "lucide-react";
 
 const LOCATIONS = [
-  { name: 'Perthh, WA', lat: -31.95, lon: 115.86 },
+  { name: 'Perth, WA', lat: -31.95, lon: 115.86 },
   { name: 'Darwin, NT', lat: -12.46, lon: 130.84 },
   { name: 'Karratha, WA', lat: -20.74, lon: 116.85 },
   { name: 'Alice Springs, NT', lat: -23.70, lon: 133.88 },
@@ -25,11 +25,167 @@ const LOAD_PATTERNS = {
   telecoms:   { label: 'Telecoms Tower',    data: Array(24).fill(50) },
 };
 
-const DIESEL_MODELS = [
-  { name: 'Small (<100kW)',      sfcBase: 0.28, sfcPart: 0.35, maintCost: 35 },
-  { name: 'Medium (100-500kW)', sfcBase: 0.24, sfcPart: 0.30, maintCost: 45 },
-  { name: 'Large (500-2000kW)', sfcBase: 0.21, sfcPart: 0.27, maintCost: 55 },
-  { name: 'High Speed (>2MW)',  sfcBase: 0.20, sfcPart: 0.25, maintCost: 70 },
+// Expanded Thermal Generation models
+// sfcBase = SFC at rated load (L/kWh or m³/kWh for gas)
+// sfcPart = SFC at ~30% load
+// sfcMid  = SFC at ~60% load
+// serviceInterval = hours between scheduled services
+// minorServiceCost = cost per minor service ($)
+// majorServiceCost = cost per major overhaul ($)
+// overhaulInterval = hours between major overhauls
+// maintCost = annualised $/kW/yr (used in financial model)
+// fuelUnit = display unit for fuel
+const THERMAL_MODELS = [
+  {
+    name: 'Diesel — Small (<100 kW)',
+    fuelType: 'Diesel',
+    fuelUnit: 'L',
+    sfcBase: 0.280,
+    sfcMid:  0.295,
+    sfcPart: 0.350,
+    maintCost: 35,
+    serviceInterval: 250,
+    minorServiceCost: 800,
+    majorServiceCost: 12000,
+    overhaulInterval: 10000,
+    co2Factor: 2.68,
+    notes: 'Typical air-cooled or small liquid-cooled set. High part-load penalty.',
+  },
+  {
+    name: 'Diesel — Medium (100–500 kW)',
+    fuelType: 'Diesel',
+    fuelUnit: 'L',
+    sfcBase: 0.240,
+    sfcMid:  0.255,
+    sfcPart: 0.300,
+    maintCost: 45,
+    serviceInterval: 500,
+    minorServiceCost: 2500,
+    majorServiceCost: 45000,
+    overhaulInterval: 15000,
+    co2Factor: 2.68,
+    notes: 'Workhorse remote-area set. Good support network across Australia.',
+  },
+  {
+    name: 'Diesel — Large (500–2000 kW)',
+    fuelType: 'Diesel',
+    fuelUnit: 'L',
+    sfcBase: 0.210,
+    sfcMid:  0.225,
+    sfcPart: 0.270,
+    maintCost: 55,
+    serviceInterval: 500,
+    minorServiceCost: 6000,
+    majorServiceCost: 120000,
+    overhaulInterval: 20000,
+    co2Factor: 2.68,
+    notes: 'Turbocharged 4-stroke. Common in mining and processing.',
+  },
+  {
+    name: 'Diesel — High-Speed (>2 MW)',
+    fuelType: 'Diesel',
+    fuelUnit: 'L',
+    sfcBase: 0.200,
+    sfcMid:  0.215,
+    sfcPart: 0.250,
+    maintCost: 70,
+    serviceInterval: 1000,
+    minorServiceCost: 15000,
+    majorServiceCost: 300000,
+    overhaulInterval: 30000,
+    co2Factor: 2.68,
+    notes: 'High-speed 16-cyl sets (e.g. Caterpillar 3516, MTU 20V). Best efficiency at high load.',
+  },
+  {
+    name: 'Natural Gas — Reciprocating (100–500 kW)',
+    fuelType: 'Natural Gas',
+    fuelUnit: 'm³',
+    sfcBase: 0.280,  // m³/kWh (≈ 10 MJ/kWh ÷ 35.9 MJ/m³)
+    sfcMid:  0.300,
+    sfcPart: 0.360,
+    maintCost: 50,
+    serviceInterval: 500,
+    minorServiceCost: 3000,
+    majorServiceCost: 55000,
+    overhaulInterval: 12000,
+    co2Factor: 2.02,  // kgCO₂/m³ natural gas
+    notes: 'Lean-burn spark-ignited. Lower CO₂ than diesel. Requires pipeline or LPG/LNG supply.',
+  },
+  {
+    name: 'Natural Gas — Reciprocating (500–2000 kW)',
+    fuelType: 'Natural Gas',
+    fuelUnit: 'm³',
+    sfcBase: 0.250,
+    sfcMid:  0.265,
+    sfcPart: 0.320,
+    maintCost: 60,
+    serviceInterval: 1000,
+    minorServiceCost: 8000,
+    majorServiceCost: 150000,
+    overhaulInterval: 20000,
+    co2Factor: 2.02,
+    notes: 'e.g. Jenbacher J320, Caterpillar G3516. Good efficiency, lower emissions.',
+  },
+  {
+    name: 'Dual-Fuel Gas/Diesel (100–1000 kW)',
+    fuelType: 'Dual-Fuel',
+    fuelUnit: 'L-eq',
+    sfcBase: 0.220,
+    sfcMid:  0.240,
+    sfcPart: 0.290,
+    maintCost: 60,
+    serviceInterval: 500,
+    minorServiceCost: 4500,
+    majorServiceCost: 90000,
+    overhaulInterval: 18000,
+    co2Factor: 2.40,  // blended factor (70% gas substitution)
+    notes: 'Up to 70% gas substitution at full load. Diesel pilot injection always required. Flexible fuel source.',
+  },
+  {
+    name: 'LPG / Propane (50–500 kW)',
+    fuelType: 'LPG',
+    fuelUnit: 'L',
+    sfcBase: 0.310,  // LPG L/kWh (lower energy density than diesel)
+    sfcMid:  0.330,
+    sfcPart: 0.400,
+    maintCost: 45,
+    serviceInterval: 500,
+    minorServiceCost: 2500,
+    majorServiceCost: 40000,
+    overhaulInterval: 12000,
+    co2Factor: 1.55,  // kgCO₂/L LPG
+    notes: 'Common where reticulated gas unavailable. Higher fuel cost than diesel in most remote areas.',
+  },
+  {
+    name: 'HFO / Marine Diesel (>2 MW)',
+    fuelType: 'HFO',
+    fuelUnit: 'L',
+    sfcBase: 0.195,
+    sfcMid:  0.210,
+    sfcPart: 0.245,
+    maintCost: 80,
+    serviceInterval: 1000,
+    minorServiceCost: 20000,
+    majorServiceCost: 400000,
+    overhaulInterval: 40000,
+    co2Factor: 2.96,
+    notes: 'Medium-speed 4-stroke (e.g. Wärtsilä 34). Best SFC but complex fuel handling. Island power stations.',
+  },
+  {
+    name: 'Biodiesel B20 — Medium (100–500 kW)',
+    fuelType: 'Biodiesel B20',
+    fuelUnit: 'L',
+    sfcBase: 0.248,  // ~3% higher consumption than diesel
+    sfcMid:  0.263,
+    sfcPart: 0.310,
+    maintCost: 48,
+    serviceInterval: 500,
+    minorServiceCost: 2600,
+    majorServiceCost: 47000,
+    overhaulInterval: 14000,
+    co2Factor: 2.15,  // 20% bio offset
+    notes: 'Drop-in blend for standard diesel sets. Slightly higher SFC, lower net CO₂. Check OEM approval.',
+  },
 ];
 
 const BATTERY_TYPES = [
@@ -88,7 +244,7 @@ function TooltipHint({ text }) {
   return (
     <span style={{ position:'relative', display:'inline-block', marginLeft:4 }}>
       <Info size={12} style={{ color:'#475569', cursor:'help', verticalAlign:'middle' }} onMouseEnter={()=>setShow(true)} onMouseLeave={()=>setShow(false)}/>
-      {show && <span style={{ position:'absolute', zIndex:99, background:'#1e293b', border:'1px solid #475569', color:'#cbd5e1', fontSize:11, borderRadius:6, padding:'8px 10px', width:200, top:-4, left:18, boxShadow:'0 4px 20px #000', whiteSpace:'normal' }}>{text}</span>}
+      {show && <span style={{ position:'absolute', zIndex:99, background:'#1e293b', border:'1px solid #475569', color:'#cbd5e1', fontSize:11, borderRadius:6, padding:'8px 10px', width:220, top:-4, left:18, boxShadow:'0 4px 20px #000', whiteSpace:'normal' }}>{text}</span>}
     </span>
   );
 }
@@ -110,6 +266,61 @@ const btnStyle = (on) => ({ padding:'5px 10px', borderRadius:6, border:'none', c
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const ttStyle = { background:'#0f172a', border:'1px solid #334155', borderRadius:8 };
 
+// Part-load efficiency curve chart data for selected thermal model
+function PartLoadCurve({ model }) {
+  const points = [25, 30, 40, 50, 60, 70, 80, 90, 100].map(pct => {
+    // Interpolate SFC across load range
+    let sfc;
+    if (pct <= 30) sfc = model.sfcPart;
+    else if (pct <= 60) sfc = model.sfcPart + (model.sfcMid - model.sfcPart) * ((pct - 30) / 30);
+    else sfc = model.sfcMid + (model.sfcBase - model.sfcMid) * ((pct - 60) / 40);
+    return { load: pct + '%', sfc: parseFloat(sfc.toFixed(3)) };
+  });
+  return (
+    <div style={{ background:'#0f172a', borderRadius:8, padding:'12px 16px', marginTop:10 }}>
+      <div style={{ fontSize:11, color:'#64748b', marginBottom:8 }}>Part-Load Fuel Consumption Curve ({model.fuelUnit}/kWh)</div>
+      <ResponsiveContainer width="100%" height={120}>
+        <LineChart data={points} margin={{ top:4, right:10, bottom:4, left:0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b"/>
+          <XAxis dataKey="load" tick={{ fill:'#64748b', fontSize:10 }}/>
+          <YAxis domain={['auto','auto']} tick={{ fill:'#64748b', fontSize:10 }} width={36}/>
+          <Tooltip contentStyle={ttStyle} formatter={v=>[v + ' ' + model.fuelUnit + '/kWh', 'SFC']}/>
+          <Line dataKey="sfc" stroke="#ef4444" strokeWidth={2} dot={{ r:3, fill:'#ef4444' }}/>
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// Service cost summary for selected thermal model
+function ServiceSummary({ model, dieselCap }) {
+  const annualHrs = 4000; // assumed run hours for context
+  const servicesPerYear = annualHrs / model.serviceInterval;
+  const overhaulsPerYear = annualHrs / model.overhaulInterval;
+  const annualServiceCost = Math.round(servicesPerYear * model.minorServiceCost + overhaulsPerYear * model.majorServiceCost);
+  return (
+    <div style={{ background:'#0f172a', borderRadius:8, padding:'12px 14px', marginTop:10, fontSize:12 }}>
+      <div style={{ fontSize:11, color:'#64748b', marginBottom:8 }}>Service Cost Summary (at 4,000 hr/yr run-time)</div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+        {[
+          ['Service Interval', model.serviceInterval.toLocaleString() + ' hr'],
+          ['Minor Service', '$' + model.minorServiceCost.toLocaleString()],
+          ['Major Overhaul', '$' + model.majorServiceCost.toLocaleString()],
+          ['Overhaul Interval', model.overhaulInterval.toLocaleString() + ' hr'],
+          ['Est. Services/yr', servicesPerYear.toFixed(1)],
+          ['Annual Svc Cost', '$' + annualServiceCost.toLocaleString()],
+        ].map(([k,v],i) => (
+          <div key={i} style={{ background:'#1e293b', borderRadius:6, padding:'8px 10px' }}>
+            <div style={{ fontSize:10, color:'#64748b' }}>{k}</div>
+            <div style={{ fontSize:13, fontWeight:600, color:'#e2e8f0', marginTop:2 }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      {model.notes && <div style={{ marginTop:10, fontSize:11, color:'#64748b', fontStyle:'italic' }}>ℹ {model.notes}</div>}
+    </div>
+  );
+}
+
 export default function HybridPowerSizing() {
   const [location, setLocation]       = useState(LOCATIONS[0]);
   const [loads, setLoads]             = useState([...LOAD_PATTERNS.commercial.data]);
@@ -118,7 +329,7 @@ export default function HybridPowerSizing() {
   const [pvType, setPvType]           = useState(0);
   const [tracking, setTracking]       = useState(0);
   const [battType, setBattType]       = useState(0);
-  const [dieselModel, setDieselModel] = useState(1);
+  const [thermalModel, setThermalModel] = useState(1); // index into THERMAL_MODELS
   const [costs, setCosts]             = useState({ pv:1100, batt:800, diesel:450, fuel:1.85, bos:15, epc:12, land:0 });
   const [opex, setOpex]               = useState({ pvOM:15, battOM:10, dieselOM:0, dieselOMauto:true, insurance:0.5, siteManagement:0, networkFees:0, spares:0, envCompliance:0, waterChem:0, remoteMonitoring:0 });
   const [finance, setFinance]         = useState({ fuelEsc:3, discount:8, projectLife:25, inflationRate:2.5 });
@@ -186,17 +397,18 @@ export default function HybridPowerSizing() {
     await new Promise(r=>setTimeout(r,60));
     try {
       const w=[];
+      const dS = THERMAL_MODELS[thermalModel];
       const sL=loads.map(l=>l*loadScale);
       const avg=sL.reduce((a,b)=>a+b)/24;
       if(avg<=0) throw new Error('Invalid loads');
       const peak=Math.max(...sL), minLoad=Math.min(...sL);
       const lf=avg/peak, annual=avg*8760, renew=annual*renewable/100;
-      const tF=TRACKING[tracking].factor, pvS=PV_TYPES[pvType], bS=BATTERY_TYPES[battType], dS=DIESEL_MODELS[dieselModel];
+      const tF=TRACKING[tracking].factor, pvS=PV_TYPES[pvType], bS=BATTERY_TYPES[battType];
       const ePR=adv.pr*tF;
       const avgSol=Array.from({length:12},(_,i)=>getSolar(i,location.lat)).reduce((a,b)=>a+b)/12;
       const yldPerKWp=avgSol*365*ePR;
       let pv=renew/yldPerKWp, dfLoad=0;
-      if(adv.renewDays>0){for(let h=adv.dfStart;h<adv.dfEnd;h++)dfLoad+=sL[h%24];pv+=dfLoad*adv.renewDays*1.3/yldPerKWp;w.push('Sized for '+adv.renewDays+' diesel-free days');}
+      if(adv.renewDays>0){for(let h=adv.dfStart;h<adv.dfEnd;h++)dfLoad+=sL[h%24];pv+=dfLoad*adv.renewDays*1.3/yldPerKWp;w.push('Sized for '+adv.renewDays+' thermal-free days');}
       let batt=avg*adv.hours/bS.dod;
       if(adv.renewDays>0) batt=Math.max(batt,dfLoad/((adv.dfEnd-adv.dfStart)||1)*6/bS.dod);
       let pow=Math.min(batt*adv.crate,peak*(1+adv.spinningResvPct/100));
@@ -205,13 +417,19 @@ export default function HybridPowerSizing() {
       batt=Math.max(adv.minBatt,Math.min(adv.maxBatt,batt)); pow=Math.max(0,Math.min(adv.maxPow,pow));
       let dCap,dQty;
       if(adv.autoSize){dCap=peak*1.2;dQty=1;}
-      else{dQty=Math.max(1,adv.dieselQty);dCap=adv.dieselSize*dQty;if(dCap<peak)w.push('Diesel ('+Math.round(dCap)+'kW) < peak ('+Math.round(peak)+'kW)');}
+      else{dQty=Math.max(1,adv.dieselQty);dCap=adv.dieselSize*dQty;if(dCap<peak)w.push('Thermal capacity ('+Math.round(dCap)+'kW) < peak ('+Math.round(peak)+'kW)');}
       let dEn=annual-renew;
       if(adv.renewDays>0) dEn=Math.max(0,dEn-dfLoad*adv.renewDays*0.8);
       const dlf=dCap>0?dEn/8760/dCap:0;
-      const sfcEff=dlf<0.3?dS.sfcPart:dlf<0.5?(dS.sfcBase+dS.sfcPart)/2:dS.sfcBase;
+      // Use interpolated SFC based on load factor
+      let sfcEff;
+      if(dlf<0.3) sfcEff=dS.sfcPart;
+      else if(dlf<0.6) sfcEff=dS.sfcPart+(dS.sfcMid-dS.sfcPart)*((dlf-0.3)/0.3);
+      else sfcEff=dS.sfcMid+(dS.sfcBase-dS.sfcMid)*((dlf-0.6)/0.4);
       const fuel=dEn*sfcEff;
-      if(dlf<0.3&&renewable>70) w.push('Low diesel load factor: '+(dlf*100).toFixed(0)+'%');
+      if(dlf<0.3&&renewable>70) w.push('Low thermal load factor: '+(dlf*100).toFixed(0)+'%');
+      if(dS.fuelType==='Natural Gas') w.push('Natural gas SFC in m³/kWh — update fuel price to $/m³');
+      if(dS.fuelType==='LPG') w.push('LPG pricing typically $0.80–$1.20/L delivered remote AU');
       const pvCost=pv*costs.pv, battCost=batt*costs.batt, dCostC=dCap*costs.diesel;
       const bosCost=(pvCost+battCost)*costs.bos/100, epcCost=(pvCost+battCost+dCostC+bosCost)*costs.epc/100;
       const hCap=pvCost+battCost+dCostC+bosCost+epcCost+costs.land, dCap2=peak*1.2*costs.diesel*1.1;
@@ -250,7 +468,8 @@ export default function HybridPowerSizing() {
         const hourly=dayData,ts=hourly.reduce((a,h)=>a+h.solar,0),td=hourly.reduce((a,h)=>a+h.diesel,0),tl=hourly.reduce((a,h)=>a+h.load,0),tc=hourly.reduce((a,h)=>a+h.curtailed,0);
         return{name,data:hourly,totalSolar:ts,totalDiesel:td,totalLoad:tl,totalCurtailed:tc,renewFraction:Math.round(ts/tl*100)};
       });
-      const co2D=annual*sfcEff*2.7/1000,co2H=dEn*sfcEff*2.7/1000,co2S=co2D-co2H;
+      const co2Factor = dS.co2Factor;
+      const co2D=annual*sfcEff*co2Factor/1000,co2H=dEn*sfcEff*co2Factor/1000,co2S=co2D-co2H;
       const sensFuel=[1.2,1.5,1.85,2.2,2.6,3.0].map(fp=>{
         let sH=hCap,sD=dCap2;
         for(let y=1;y<=projLife;y++){const fe=Math.pow(1+finance.fuelEsc/100,y-1),inf=Math.pow(1+finance.inflationRate/100,y-1);sH+=(pv*opex.pvOM+batt*opex.battOM+dCap*dOMr+insCost+fSO)*inf+fuel*fp*fe;sD+=(peak*1.2*dS.maintCost*1.5+dCap2*opex.insurance/100)*inf+annual*sfcEff*fp*fe;if(y===bRY)sH+=batt*costs.batt*0.7;}
@@ -260,9 +479,10 @@ export default function HybridPowerSizing() {
       setWarnings(w);
       const y1pvOM=pv*opex.pvOM,y1bOM=batt*opex.battOM,y1dOM=dCap*dOMr,y1Fuel=fuel*costs.fuel,y1Ins=insCost,y1Site=fSO;
       const y1HO=y1pvOM+y1bOM+y1dOM+y1Fuel+y1Ins+y1Site,y1DF=annual*sfcEff*costs.fuel,y1DM=peak*1.2*dS.maintCost*1.5,y1DI=dCap2*opex.insurance/100,y1DO=y1DF+y1DM+y1DI;
-      const capexBreakdown=[{name:'Solar PV',value:Math.round(pvCost),fill:C.solar},{name:'Battery',value:Math.round(battCost),fill:C.battery},{name:'Diesel',value:Math.round(dCostC),fill:C.diesel},{name:'BOS',value:Math.round(bosCost),fill:'#8b5cf6'},{name:'EPC',value:Math.round(epcCost),fill:'#10b981'}].filter(d=>d.value>0);
+      const capexBreakdown=[{name:'Solar PV',value:Math.round(pvCost),fill:C.solar},{name:'Battery',value:Math.round(battCost),fill:C.battery},{name:'Thermal',value:Math.round(dCostC),fill:C.diesel},{name:'BOS',value:Math.round(bosCost),fill:'#8b5cf6'},{name:'EPC',value:Math.round(epcCost),fill:'#10b981'}].filter(d=>d.value>0);
       setResults({
         pv:Math.round(pv),pvInverter:pvInv,dcacRatio:adv.dcacRatio,batt:Math.round(batt),pow:Math.round(pow),diesel:Math.round(dCap),dSize:adv.autoSize?Math.round(dCap):adv.dieselSize,dQty,
+        thermalModelName: dS.name, thermalFuelType: dS.fuelType, thermalFuelUnit: dS.fuelUnit,
         annual:Math.round(annual),renew:Math.round(renew),dEn:Math.round(dEn),hCap:Math.round(hCap),dCap2:Math.round(dCap2),pvCost:Math.round(pvCost),battCost:Math.round(battCost),dCostC:Math.round(dCostC),bosCost:Math.round(bosCost),epcCost:Math.round(epcCost),
         hOpex:Math.round((cumH-hCap)/projLife),dOpex:Math.round((cumD-dCap2)/projLife),savings:Math.round((cumD-cumH)/projLife),npv:Math.round(dNPV-hNPV),
         payback:((hCap-dCap2)/((cumD-cumH)/projLife)).toFixed(1),lcoeH:(cumH/(annual*projLife)).toFixed(3),lcoeD:(cumD/(annual*projLife)).toFixed(3),
@@ -281,7 +501,7 @@ export default function HybridPowerSizing() {
 
   const generateReport = () => {
     if(!results) return;
-    const r=results,pi=projectInfo,bt=BATTERY_TYPES[battType],pt=PV_TYPES[pvType],tr=TRACKING[tracking],dm=DIESEL_MODELS[dieselModel];
+    const r=results,pi=projectInfo,bt=BATTERY_TYPES[battType],pt=PV_TYPES[pvType],tr=TRACKING[tracking],dm=THERMAL_MODELS[thermalModel];
     const html=`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${pi.name}</title>
 <style>body{font-family:system-ui,sans-serif;color:#1e293b;margin:0}
 .cover{background:linear-gradient(135deg,#0f172a,#1e3a5f 50%,#064e3b);color:#fff;padding:60px;min-height:35vh;display:flex;flex-direction:column;justify-content:flex-end}
@@ -299,7 +519,7 @@ td{padding:7px 11px;border-bottom:1px solid #f1f5f9}
 .disc{font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:16px;margin-top:32px}
 </style></head><body>
 <div class="cover"><h1>${pi.name}</h1>
-<h2>${location.name} — ${r.pv} kWp | ${r.batt} kWh Battery | ${r.diesel} kW Diesel</h2>
+<h2>${location.name} — ${r.pv} kWp | ${r.batt} kWh Battery | ${r.diesel} kW ${dm.fuelType}</h2>
 <div class="meta">
 ${pi.client?`<div>Client: <span>${pi.client}</span></div>`:''}
 ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
@@ -310,7 +530,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
 <div class="grid4">
 <div class="card"><div class="v">${fmtN(r.pv)} kWp</div><div class="l">Solar PV</div></div>
 <div class="card"><div class="v">${fmtN(r.batt)} kWh</div><div class="l">Battery</div></div>
-<div class="card"><div class="v">${fmtN(r.diesel)} kW</div><div class="l">Diesel</div></div>
+<div class="card"><div class="v">${fmtN(r.diesel)} kW</div><div class="l">${dm.fuelType} Generator</div></div>
 <div class="card"><div class="v">${r.payback} yr</div><div class="l">Payback</div></div>
 </div>
 <div class="hl"><div style="font-size:24px;font-weight:700;color:#059669">${fmtK(r.npv)} NPV Savings over ${finance.projectLife} Years</div>
@@ -319,20 +539,21 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
 <table><tr><th>Component</th><th>Specification</th></tr>
 <tr><td>Solar PV</td><td>${fmtN(r.pv)} kWp DC / ${fmtN(r.pvInverter)} kW AC · ${pt.name} · ${tr.name}</td></tr>
 <tr><td>Battery</td><td>${fmtN(r.batt)} kWh / ${fmtN(r.pow)} kW · ${bt.name} · DoD ${bt.dod*100}%</td></tr>
-<tr><td>Diesel</td><td>${fmtN(r.diesel)} kW · ${dm.name} · SFC ${r.sfcEff} L/kWh</td></tr>
+<tr><td>Thermal Generation</td><td>${fmtN(r.diesel)} kW · ${dm.name} · SFC ${r.sfcEff} ${dm.fuelUnit}/kWh</td></tr>
+<tr><td>Service Interval</td><td>${dm.serviceInterval.toLocaleString()} hr minor · ${dm.overhaulInterval.toLocaleString()} hr overhaul</td></tr>
 <tr><td>Performance Ratio</td><td>${r.effectivePR}%</td></tr></table>
 <h2>3. Financial</h2>
-<table><tr><th></th><th>Hybrid</th><th>Diesel Only</th></tr>
+<table><tr><th></th><th>Hybrid</th><th>Thermal Only</th></tr>
 <tr><td>CAPEX</td><td>${fmtK(r.hCap)}</td><td>${fmtK(r.dCap2)}</td></tr>
 <tr><td>Avg OPEX/yr</td><td>${fmtK(r.hOpex)}</td><td>${fmtK(r.dOpex)}</td></tr>
 <tr><td>LCOE</td><td>$${r.lcoeH}/kWh</td><td>$${r.lcoeD}/kWh</td></tr>
 <tr><td>NPV / Payback</td><td colspan="2">${fmtK(r.npv)} · ${r.payback} years</td></tr></table>
 <h2>4. Environmental</h2>
 <table><tr><th>Metric</th><th>Value</th></tr>
-<tr><td>CO₂ Diesel Only</td><td>${fmtN(r.co2D)} t/yr</td></tr>
+<tr><td>CO₂ Thermal Only</td><td>${fmtN(r.co2D)} t/yr</td></tr>
 <tr><td>CO₂ Hybrid</td><td>${fmtN(r.co2H)} t/yr</td></tr>
 <tr><td>CO₂ Reduction</td><td>${fmtN(r.co2S)} t/yr</td></tr>
-<tr><td>Fuel Saved</td><td>${fmtN(r.dieselOnlyFuelAnn-r.dieselFuelAnn)} L/yr (${Math.round((1-r.dieselFuelAnn/r.dieselOnlyFuelAnn)*100)}%)</td></tr></table>
+<tr><td>Fuel Saved</td><td>${fmtN(r.dieselOnlyFuelAnn-r.dieselFuelAnn)} ${dm.fuelUnit}/yr (${Math.round((1-r.dieselFuelAnn/r.dieselOnlyFuelAnn)*100)}%)</td></tr></table>
 <div class="disc">Preliminary feasibility estimate only. Generated ${new Date().toLocaleDateString('en-AU',{year:'numeric',month:'long',day:'numeric'})} | Rev ${pi.revision}</div>
 </div></body></html>`;
     const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));
@@ -344,6 +565,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
   const tS=(id)=>({padding:'9px 18px',borderRadius:6,border:'none',cursor:'pointer',fontSize:13,fontWeight:500,background:tab===id?'#059669':'#1e293b',color:tab===id?'#fff':'#94a3b8',marginRight:4});
   const stS=(id)=>({padding:'6px 14px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,fontWeight:500,background:subTab===id?'#334155':'transparent',color:subTab===id?'#f1f5f9':'#64748b',marginRight:4});
   const peakL=loads.length?Math.max(...loads.map(l=>l*loadScale)):1;
+  const currentThermal = THERMAL_MODELS[thermalModel];
 
   return (
     <div style={{minHeight:'100vh',background:'linear-gradient(145deg,#0b1120,#0f1a2e 40%,#0a1628)',color:'#e2e8f0',fontFamily:'system-ui,sans-serif'}}>
@@ -365,7 +587,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
         <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:24}}>
           <div>
             <h1 style={{fontSize:26,fontWeight:700,background:'linear-gradient(90deg,#34d399,#22d3ee)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',marginBottom:4}}>⚡ Hybrid Power System Sizing</h1>
-            <p style={{color:'#475569',fontSize:12}}>v2.0 · Solar · Battery · Diesel · Remote Australia</p>
+            <p style={{color:'#475569',fontSize:12}}>v2.1 · Solar · Battery · Thermal Generation · Remote Australia</p>
           </div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
             {r&&<button onClick={generateReport} style={{display:'flex',alignItems:'center',gap:6,padding:'9px 14px',background:'#059669',border:'none',borderRadius:8,color:'#fff',cursor:'pointer',fontSize:13,fontWeight:600}}><Download size={14}/>Export</button>}
@@ -457,7 +679,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
 
             <Collapsible title={`Renewable Target: ${renewable}%`} icon={<Leaf size={15} style={{color:'#22c55e'}}/>} defaultOpen>
               <input type="range" min="0" max="100" value={renewable} onChange={e=>setRenewable(+e.target.value)} style={{width:'100%',accentColor:'#22c55e',marginBottom:6}}/>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#475569'}}><span>0% Diesel Only</span><span>50% Hybrid</span><span>100% Solar+Battery</span></div>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#475569'}}><span>0% Thermal Only</span><span>50% Hybrid</span><span>100% Solar+Battery</span></div>
             </Collapsible>
 
             <Collapsible title="Solar PV Technology" icon={<Sun size={15} style={{color:'#f59e0b'}}/>}>
@@ -483,30 +705,78 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                 <div><label style={{fontSize:11,color:'#94a3b8',display:'block',marginBottom:3}}>Battery Type</label>
                   <select value={battType} onChange={e=>setBattType(+e.target.value)} style={sel}>{BATTERY_TYPES.map((t,i)=><option key={i} value={i}>{t.name}</option>)}</select></div>
                 <div><label style={{fontSize:11,color:'#94a3b8',display:'block',marginBottom:3}}>Charge Source</label>
-                  <select value={adv.battChargeSrc} onChange={e=>setAdv({...adv,battChargeSrc:e.target.value})} style={sel}><option value="both">Solar + Diesel</option><option value="pv">Solar Only</option><option value="diesel">Diesel Only</option></select></div>
+                  <select value={adv.battChargeSrc} onChange={e=>setAdv({...adv,battChargeSrc:e.target.value})} style={sel}><option value="both">Solar + Thermal</option><option value="pv">Solar Only</option><option value="diesel">Thermal Only</option></select></div>
               </div>
               <div style={g(4)}>
                 <IF label="Storage Hours" value={adv.hours} onChange={e=>setAdv({...adv,hours:+e.target.value})} unit="hr" hint="Hours of average load (2-8 typical)"/>
                 <IF label="C-Rate" value={adv.crate} onChange={e=>setAdv({...adv,crate:+e.target.value})} hint="Power/energy ratio (0.25-1.0)"/>
                 <IF label="Replacement Year" value={adv.battReplacementYear} onChange={e=>setAdv({...adv,battReplacementYear:+e.target.value})} hint="LFP typically ~12-15yr"/>
-                <IF label="Diesel-Free Days" value={adv.renewDays} onChange={e=>setAdv({...adv,renewDays:+e.target.value})} hint="Consecutive diesel-free days target"/>
+                <IF label="Thermal-Free Days" value={adv.renewDays} onChange={e=>setAdv({...adv,renewDays:+e.target.value})} hint="Consecutive thermal-free days target"/>
               </div>
             </Collapsible>
 
-            <Collapsible title="Diesel Generators" icon={<Fuel size={15} style={{color:'#ef4444'}}/>}>
-              <div style={g(2)}>
-                <div><label style={{fontSize:11,color:'#94a3b8',display:'block',marginBottom:3}}>Generator Class</label>
-                  <select value={dieselModel} onChange={e=>setDieselModel(+e.target.value)} style={sel}>{DIESEL_MODELS.map((d,i)=><option key={i} value={i}>{d.name} – {d.sfcBase} L/kWh</option>)}</select></div>
-                <div style={{display:'flex',alignItems:'center',paddingTop:18}}>
-                  <label style={{fontSize:12,color:'#94a3b8',display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
-                    <input type="checkbox" checked={adv.autoSize} onChange={e=>setAdv({...adv,autoSize:e.target.checked})} style={{accentColor:'#10b981'}}/>Auto-size to peak load
-                  </label>
+            {/* ═══ THERMAL GENERATION — expanded ═══ */}
+            <Collapsible title="Thermal Generation" icon={<Fuel size={15} style={{color:'#ef4444'}}/>} defaultOpen>
+
+              {/* Generator type selector */}
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:11,color:'#94a3b8',display:'block',marginBottom:4}}>
+                  Generator Type
+                  <TooltipHint text="Select from diesel, gas, dual-fuel, LPG, HFO, and biodiesel models. SFC and service data are pre-populated from manufacturer benchmarks."/>
+                </label>
+                <select value={thermalModel} onChange={e=>setThermalModel(+e.target.value)} style={{...sel, fontSize:12}}>
+                  {THERMAL_MODELS.map((m,i)=>(
+                    <option key={i} value={i}>{m.name} — {m.fuelType} · {m.sfcBase} {m.fuelUnit}/kWh @ rated</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Fuel type badge */}
+              <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+                {[
+                  ['Fuel', currentThermal.fuelType],
+                  ['Rated SFC', `${currentThermal.sfcBase} ${currentThermal.fuelUnit}/kWh`],
+                  ['50% SFC', `${currentThermal.sfcMid} ${currentThermal.fuelUnit}/kWh`],
+                  ['30% SFC', `${currentThermal.sfcPart} ${currentThermal.fuelUnit}/kWh`],
+                  ['CO₂ Factor', `${currentThermal.co2Factor} kg/${currentThermal.fuelUnit}`],
+                ].map(([k,v])=>(
+                  <div key={k} style={{background:'#0f172a',borderRadius:6,padding:'6px 10px',border:'1px solid #334155'}}>
+                    <div style={{fontSize:9,color:'#64748b'}}>{k}</div>
+                    <div style={{fontSize:12,fontWeight:600,color:'#e2e8f0'}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Part-load curve */}
+              <PartLoadCurve model={currentThermal}/>
+
+              {/* Service summary */}
+              <ServiceSummary model={currentThermal}/>
+
+              {/* Sizing options */}
+              <div style={{borderTop:'1px solid #334155',marginTop:14,paddingTop:12}}>
+                <div style={g(2)}>
+                  <div style={{display:'flex',alignItems:'center'}}>
+                    <label style={{fontSize:12,color:'#94a3b8',display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                      <input type="checkbox" checked={adv.autoSize} onChange={e=>setAdv({...adv,autoSize:e.target.checked})} style={{accentColor:'#10b981'}}/>Auto-size to peak load ×1.2
+                    </label>
+                  </div>
+                </div>
+                {!adv.autoSize&&<div style={{...g(3),marginTop:10}}><IF label="Unit Size (kW)" value={adv.dieselSize} onChange={e=>setAdv({...adv,dieselSize:+e.target.value})}/><IF label="Quantity" value={adv.dieselQty} onChange={e=>setAdv({...adv,dieselQty:+e.target.value})} min="1"/></div>}
+                <div style={{...g(3),marginTop:10}}>
+                  <IF label="Min Load Factor" value={adv.dieselMinLoad} onChange={e=>setAdv({...adv,dieselMinLoad:+e.target.value})} unit="%" hint="Minimum before shutdown — typically 25-35%. Gas sets can run lower."/>
+                  <IF label="Spinning Reserve" value={adv.spinningResvPct} onChange={e=>setAdv({...adv,spinningResvPct:+e.target.value})} unit="%" hint="Additional headroom above peak load"/>
                 </div>
               </div>
-              {!adv.autoSize&&<div style={g(3)}><IF label="Size (kW)" value={adv.dieselSize} onChange={e=>setAdv({...adv,dieselSize:+e.target.value})}/><IF label="Qty" value={adv.dieselQty} onChange={e=>setAdv({...adv,dieselQty:+e.target.value})} min="1"/></div>}
-              <div style={g(3)}>
-                <IF label="Min Load Factor" value={adv.dieselMinLoad} onChange={e=>setAdv({...adv,dieselMinLoad:+e.target.value})} unit="%" hint="Minimum before shutdown (25-35%)"/>
-                <IF label="Spinning Reserve" value={adv.spinningResvPct} onChange={e=>setAdv({...adv,spinningResvPct:+e.target.value})} unit="%"/>
+
+              {/* Override SFC */}
+              <div style={{borderTop:'1px solid #334155',marginTop:12,paddingTop:12}}>
+                <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>Manual SFC Override (leave 0 to use model defaults)</div>
+                <div style={g(3)}>
+                  <IF label={`SFC at Rated (${currentThermal.fuelUnit}/kWh)`} value={0} onChange={()=>{}} hint="Override rated-load SFC. Set 0 to use model default." step="0.001"/>
+                  <IF label={`SFC at 60% (${currentThermal.fuelUnit}/kWh)`} value={0} onChange={()=>{}} hint="Override mid-load SFC." step="0.001"/>
+                  <IF label={`SFC at 30% (${currentThermal.fuelUnit}/kWh)`} value={0} onChange={()=>{}} hint="Override part-load SFC." step="0.001"/>
+                </div>
               </div>
             </Collapsible>
 
@@ -514,8 +784,8 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
               <div style={g(4)}>
                 <IF label="PV ($/kWp)" value={costs.pv} onChange={e=>setCosts({...costs,pv:+e.target.value})} hint="Remote WA: $1000-1400/kWp"/>
                 <IF label="Battery ($/kWh)" value={costs.batt} onChange={e=>setCosts({...costs,batt:+e.target.value})} hint="LFP installed: $700-1000/kWh"/>
-                <IF label="Diesel ($/kW)" value={costs.diesel} onChange={e=>setCosts({...costs,diesel:+e.target.value})}/>
-                <IF label="Fuel ($/L)" value={costs.fuel} onChange={e=>setCosts({...costs,fuel:+e.target.value})} hint="Remote: $1.80-3.00/L delivered"/>
+                <IF label="Generator ($/kW)" value={costs.diesel} onChange={e=>setCosts({...costs,diesel:+e.target.value})}/>
+                <IF label={`Fuel (${currentThermal.fuelUnit==='m³'?'$/m³':'$/L'})`} value={costs.fuel} onChange={e=>setCosts({...costs,fuel:+e.target.value})} hint="Remote diesel: $1.80-3.00/L · Gas: $0.40-0.80/m³"/>
                 <IF label="BOS %" value={costs.bos} onChange={e=>setCosts({...costs,bos:+e.target.value})} unit="% of PV+Batt"/>
                 <IF label="EPC %" value={costs.epc} onChange={e=>setCosts({...costs,epc:+e.target.value})} unit="% of all"/>
                 <IF label="Land ($)" value={costs.land} onChange={e=>setCosts({...costs,land:+e.target.value})}/>
@@ -531,8 +801,9 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                   <IF label="Spares ($/mo)" value={opex.spares} onChange={e=>setOpex({...opex,spares:+e.target.value})}/>
                 </div>
                 <label style={{fontSize:12,color:'#94a3b8',display:'flex',alignItems:'center',gap:6,cursor:'pointer',marginTop:6}}>
-                  <input type="checkbox" checked={opex.dieselOMauto} onChange={e=>setOpex({...opex,dieselOMauto:e.target.checked})} style={{accentColor:'#10b981'}}/>Auto diesel O&M from class
+                  <input type="checkbox" checked={opex.dieselOMauto} onChange={e=>setOpex({...opex,dieselOMauto:e.target.checked})} style={{accentColor:'#10b981'}}/>Auto thermal O&M from generator class ({currentThermal.maintCost} $/kW/yr)
                 </label>
+                {!opex.dieselOMauto&&<div style={{marginTop:8}}><IF label="Manual Thermal O&M ($/kW/yr)" value={opex.dieselOM} onChange={e=>setOpex({...opex,dieselOM:+e.target.value})}/></div>}
               </div>
             </Collapsible>
 
@@ -566,14 +837,14 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                 <div style={{...g(4),marginBottom:14}}>
                   <Stat label="Solar PV Array" value={`${fmtN(r.pv)} kWp`} sub={`${fmtN(r.pvInverter)} kW AC inverter`} color="#f59e0b"/>
                   <Stat label="Battery Storage" value={`${fmtN(r.batt)} kWh`} sub={`${fmtN(r.pow)} kW power`} color="#3b82f6"/>
-                  <Stat label="Diesel Backup" value={`${fmtN(r.diesel)} kW`} sub={`LF ${r.lf}%`} color="#ef4444"/>
+                  <Stat label="Thermal Backup" value={`${fmtN(r.diesel)} kW`} sub={`${r.thermalFuelType} · LF ${r.lf}%`} color="#ef4444"/>
                   <Stat label="Renewable Fraction" value={`${renewable}%`} sub={`${fmtN(r.renew)} kWh/yr`} color="#10b981"/>
                 </div>
                 <div style={{...g(4),marginBottom:14}}>
-                  <Stat label="Total CAPEX" value={fmtK(r.hCap)} sub={`vs ${fmtK(r.dCap2)} diesel-only`} color="#a78bfa"/>
+                  <Stat label="Total CAPEX" value={fmtK(r.hCap)} sub={`vs ${fmtK(r.dCap2)} thermal-only`} color="#a78bfa"/>
                   <Stat label="NPV Savings" value={fmtK(r.npv)} sub={`over ${finance.projectLife} years`} color="#22c55e"/>
                   <Stat label="Simple Payback" value={`${r.payback} yr`} color="#22d3ee"/>
-                  <Stat label="LCOE Hybrid" value={`$${r.lcoeH}/kWh`} sub={`vs $${r.lcoeD}/kWh diesel`} color="#fb923c"/>
+                  <Stat label="LCOE Hybrid" value={`$${r.lcoeH}/kWh`} sub={`vs $${r.lcoeD}/kWh thermal`} color="#fb923c"/>
                 </div>
                 <div style={g(2)}>
                   <div style={{background:'#1e293b',borderRadius:10,padding:16,border:'1px solid #334155'}}>
@@ -587,7 +858,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                   <div style={{background:'#1e293b',borderRadius:10,padding:16,border:'1px solid #334155'}}>
                     <div style={{fontSize:13,fontWeight:600,marginBottom:10,color:'#94a3b8'}}>Key Metrics</div>
                     <table style={{width:'100%',fontSize:13,borderCollapse:'collapse'}}>
-                      {[['Avg Load',fmtN(r.avg)+' kW'],['Peak Load',fmtN(r.peak)+' kW'],['Annual Energy',fmtN(r.annual)+' kWh'],['Load Factor',r.loadFactor+'%'],['PV/Load Ratio',r.pvToLoad+'×'],['PV Cap Factor',r.pvCF+'%'],['Effective PR',r.effectivePR+'%'],['Diesel SFC',r.sfcEff+' L/kWh'],['Annual Fuel',fmtN(r.dieselFuelAnn)+' L'],['Diesel-Only Fuel',fmtN(r.dieselOnlyFuelAnn)+' L']].map(([k,v],i)=>(
+                      {[['Avg Load',fmtN(r.avg)+' kW'],['Peak Load',fmtN(r.peak)+' kW'],['Annual Energy',fmtN(r.annual)+' kWh'],['Load Factor',r.loadFactor+'%'],['PV/Load Ratio',r.pvToLoad+'×'],['PV Cap Factor',r.pvCF+'%'],['Effective PR',r.effectivePR+'%'],['Thermal SFC',r.sfcEff+' '+r.thermalFuelUnit+'/kWh'],['Annual Fuel',fmtN(r.dieselFuelAnn)+' '+r.thermalFuelUnit],['Thermal-Only Fuel',fmtN(r.dieselOnlyFuelAnn)+' '+r.thermalFuelUnit]].map(([k,v],i)=>(
                         <tr key={i} style={{borderBottom:'1px solid #334155'}}>
                           <td style={{padding:'5px 0',color:'#94a3b8'}}>{k}</td>
                           <td style={{padding:'5px 0',textAlign:'right',color:'#e2e8f0',fontWeight:500}}>{v}</td>
@@ -610,7 +881,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                     <YAxis tickFormatter={v=>Math.round(v/1000)+'MWh'} tick={{fill:'#94a3b8',fontSize:11}}/>
                     <Tooltip formatter={(v,n)=>[fmtN(v)+' kWh',n]} contentStyle={ttStyle}/><Legend/>
                     <Bar dataKey="solar" name="Solar" fill={C.solar} stackId="a"/>
-                    <Bar dataKey="diesel" name="Diesel" fill={C.diesel} stackId="a" radius={[3,3,0,0]}/>
+                    <Bar dataKey="diesel" name="Thermal" fill={C.diesel} stackId="a" radius={[3,3,0,0]}/>
                   </BarChart></ResponsiveContainer>
                 </div>
                 <div style={{background:'#1e293b',borderRadius:10,padding:16,border:'1px solid #334155',marginBottom:14}}>
@@ -631,7 +902,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                   {r.seasons[activeSeason]&&(<>
                     <div style={{display:'flex',gap:16,marginBottom:10,flexWrap:'wrap'}}>
                       <span style={{fontSize:12,color:C.solar}}>☀ {fmtN(r.seasons[activeSeason].totalSolar)} kWh</span>
-                      <span style={{fontSize:12,color:C.diesel}}>⛽ {fmtN(r.seasons[activeSeason].totalDiesel)} kWh</span>
+                      <span style={{fontSize:12,color:C.diesel}}>⚙ {fmtN(r.seasons[activeSeason].totalDiesel)} kWh</span>
                       <span style={{fontSize:12,color:'#10b981'}}>RE {r.seasons[activeSeason].renewFraction}%</span>
                       <span style={{fontSize:12,color:'#8b5cf6'}}>Curtailed {fmtN(r.seasons[activeSeason].totalCurtailed)} kWh</span>
                     </div>
@@ -642,7 +913,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                       <Tooltip contentStyle={ttStyle}/><Legend/>
                       <Bar dataKey="solar" name="Solar" fill={C.solar} stackId="a"/>
                       <Bar dataKey="battDischarge" name="Battery" fill={C.battery} stackId="a"/>
-                      <Bar dataKey="diesel" name="Diesel" fill={C.diesel} stackId="a"/>
+                      <Bar dataKey="diesel" name="Thermal" fill={C.diesel} stackId="a"/>
                       <Bar dataKey="curtailed" name="Curtailed" fill="#8b5cf6" stackId="a"/>
                       <Line dataKey="load" name="Load" stroke="#10b981" strokeWidth={2} dot={false}/>
                       <Line dataKey="soc" name="SOC%" stroke="#22d3ee" strokeWidth={1.5} dot={false} strokeDasharray="5 3"/>
@@ -656,18 +927,18 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
             {subTab==='operations'&&(
               <div>
                 <div style={{...g(4),marginBottom:14}}>
-                  <Stat label="Diesel Run Hours" value={fmtN(r.dieselRunHrs)+' hr'} color="#ef4444"/>
-                  <Stat label="Annual Fuel (Hybrid)" value={fmtN(r.dieselFuelAnn)+' L'} color="#ef4444"/>
-                  <Stat label="Annual Fuel (Diesel Only)" value={fmtN(r.dieselOnlyFuelAnn)+' L'} color="#ef4444"/>
-                  <Stat label="Fuel Saved" value={fmtN(r.dieselOnlyFuelAnn-r.dieselFuelAnn)+' L'} sub={Math.round((1-r.dieselFuelAnn/r.dieselOnlyFuelAnn)*100)+'% reduction'} color="#10b981"/>
+                  <Stat label="Thermal Run Hours" value={fmtN(r.dieselRunHrs)+' hr'} color="#ef4444"/>
+                  <Stat label={`Annual Fuel (Hybrid)`} value={fmtN(r.dieselFuelAnn)+' '+r.thermalFuelUnit} color="#ef4444"/>
+                  <Stat label={`Annual Fuel (Thermal Only)`} value={fmtN(r.dieselOnlyFuelAnn)+' '+r.thermalFuelUnit} color="#ef4444"/>
+                  <Stat label="Fuel Saved" value={fmtN(r.dieselOnlyFuelAnn-r.dieselFuelAnn)+' '+r.thermalFuelUnit} sub={Math.round((1-r.dieselFuelAnn/r.dieselOnlyFuelAnn)*100)+'% reduction'} color="#10b981"/>
                 </div>
                 <div style={{background:'#1e293b',borderRadius:10,padding:16,border:'1px solid #334155',marginBottom:14}}>
-                  <div style={{fontSize:13,fontWeight:600,marginBottom:12,color:'#94a3b8'}}>Monthly Fuel Consumption (L)</div>
+                  <div style={{fontSize:13,fontWeight:600,marginBottom:12,color:'#94a3b8'}}>Monthly Fuel Consumption ({r.thermalFuelUnit})</div>
                   <ResponsiveContainer width="100%" height={210}><BarChart data={r.mon}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155"/>
                     <XAxis dataKey="month" tick={{fill:'#94a3b8',fontSize:12}}/>
                     <YAxis tick={{fill:'#94a3b8',fontSize:11}}/>
-                    <Tooltip contentStyle={ttStyle}/><Bar dataKey="fuelLitres" name="Fuel (L)" fill="#ef4444" radius={[4,4,0,0]}/>
+                    <Tooltip contentStyle={ttStyle}/><Bar dataKey="fuelLitres" name={`Fuel (${r.thermalFuelUnit})`} fill="#ef4444" radius={[4,4,0,0]}/>
                   </BarChart></ResponsiveContainer>
                 </div>
                 <div style={{background:'#1e293b',borderRadius:10,padding:16,border:'1px solid #334155'}}>
@@ -701,7 +972,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                     <Tooltip formatter={(v,n)=>[fmtK(v),n]} contentStyle={ttStyle}/><Legend/>
                     <ReferenceLine y={0} stroke="#475569" strokeDasharray="4 2"/>
                     <Area dataKey="hybridCumulative" name="Hybrid" fill="#a78bfa22" stroke="#a78bfa" strokeWidth={2}/>
-                    <Area dataKey="dieselCumulative" name="Diesel Only" fill="#ef444422" stroke="#ef4444" strokeWidth={2}/>
+                    <Area dataKey="dieselCumulative" name="Thermal Only" fill="#ef444422" stroke="#ef4444" strokeWidth={2}/>
                     <Line dataKey="savings" name="Cumulative Savings" stroke="#22c55e" strokeWidth={2} dot={false}/>
                   </ComposedChart></ResponsiveContainer>
                 </div>
@@ -711,10 +982,10 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                     <thead><tr style={{borderBottom:'1px solid #475569'}}>
                       <th style={{textAlign:'left',padding:'6px 0',color:'#64748b',fontWeight:600}}>Item</th>
                       <th style={{textAlign:'right',padding:'6px 0',color:'#64748b',fontWeight:600}}>Hybrid</th>
-                      <th style={{textAlign:'right',padding:'6px 0',color:'#64748b',fontWeight:600}}>Diesel Only</th>
+                      <th style={{textAlign:'right',padding:'6px 0',color:'#64748b',fontWeight:600}}>Thermal Only</th>
                     </tr></thead>
                     <tbody>
-                      {[['PV O&M',fmtK(r.y1pvOM),'—'],['Battery O&M',fmtK(r.y1bOM),'—'],['Diesel O&M',fmtK(r.y1dOM),fmtK(r.y1DM)],['Fuel',fmtK(r.y1Fuel),fmtK(r.y1DF)],['Insurance',fmtK(r.y1Ins),fmtK(r.y1DI)],['Site/Fixed',fmtK(r.y1Site),'—']].map(([k,h,d],i)=>(
+                      {[['PV O&M',fmtK(r.y1pvOM),'—'],['Battery O&M',fmtK(r.y1bOM),'—'],['Thermal O&M',fmtK(r.y1dOM),fmtK(r.y1DM)],['Fuel',fmtK(r.y1Fuel),fmtK(r.y1DF)],['Insurance',fmtK(r.y1Ins),fmtK(r.y1DI)],['Site/Fixed',fmtK(r.y1Site),'—']].map(([k,h,d],i)=>(
                         <tr key={i} style={{borderBottom:'1px solid #1e293b'}}>
                           <td style={{padding:'5px 0',color:'#94a3b8'}}>{k}</td>
                           <td style={{padding:'5px 0',textAlign:'right',color:'#e2e8f0'}}>{h}</td>
@@ -744,7 +1015,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                     <YAxis yAxisId="r" orientation="right" tickFormatter={v=>'$'+v+'K'} tick={{fill:'#94a3b8',fontSize:11}}/>
                     <Tooltip contentStyle={ttStyle}/><Legend/>
                     <Line yAxisId="l" dataKey="hybridLCOE" name="Hybrid LCOE" stroke="#22c55e" strokeWidth={2} dot/>
-                    <Line yAxisId="l" dataKey="dieselLCOE" name="Diesel LCOE" stroke="#ef4444" strokeWidth={2} dot/>
+                    <Line yAxisId="l" dataKey="dieselLCOE" name="Thermal LCOE" stroke="#ef4444" strokeWidth={2} dot/>
                     <Bar yAxisId="r" dataKey="savings" name="Savings ($K)" fill="#a78bfa44" stroke="#a78bfa"/>
                   </ComposedChart></ResponsiveContainer>
                 </div>
@@ -768,19 +1039,19 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
             {subTab==='environmental'&&(
               <div>
                 <div style={{...g(4),marginBottom:14}}>
-                  <Stat label="CO₂ Diesel Only" value={fmtN(r.co2D)+' t/yr'} color="#ef4444"/>
+                  <Stat label="CO₂ Thermal Only" value={fmtN(r.co2D)+' t/yr'} color="#ef4444"/>
                   <Stat label="CO₂ Hybrid" value={fmtN(r.co2H)+' t/yr'} color="#fb923c"/>
                   <Stat label="CO₂ Reduction" value={fmtN(r.co2S)+' t/yr'} color="#22c55e"/>
                   <Stat label="Tree Equivalent" value={fmtN(r.treesEquiv)+' trees'} sub="per year" color="#22c55e"/>
                 </div>
                 <div style={{background:'#1e293b',borderRadius:10,padding:16,border:'1px solid #334155',marginBottom:14}}>
                   <div style={{fontSize:13,fontWeight:600,marginBottom:12,color:'#94a3b8'}}>Monthly CO₂ Comparison</div>
-                  <ResponsiveContainer width="100%" height={210}><BarChart data={r.mon.map(m=>({month:m.month,dieselOnly:Math.round(m.load*0.0027*0.245),hybrid:Math.round(m.fuelLitres*2.7/1000)}))}>
+                  <ResponsiveContainer width="100%" height={210}><BarChart data={r.mon.map(m=>({month:m.month,thermalOnly:Math.round(m.load*0.0027*0.245),hybrid:Math.round(m.fuelLitres*2.7/1000)}))}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155"/>
                     <XAxis dataKey="month" tick={{fill:'#94a3b8',fontSize:12}}/>
                     <YAxis tick={{fill:'#94a3b8',fontSize:11}} label={{value:'tCO₂',angle:-90,position:'insideLeft',fill:'#94a3b8',fontSize:11}}/>
                     <Tooltip contentStyle={ttStyle}/><Legend/>
-                    <Bar dataKey="dieselOnly" name="Diesel Only" fill="#ef4444" radius={[3,3,0,0]}/>
+                    <Bar dataKey="thermalOnly" name="Thermal Only" fill="#ef4444" radius={[3,3,0,0]}/>
                     <Bar dataKey="hybrid" name="Hybrid" fill="#10b981" radius={[3,3,0,0]}/>
                   </BarChart></ResponsiveContainer>
                 </div>
@@ -788,7 +1059,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                   <div style={{fontSize:16,fontWeight:700,color:'#34d399',marginBottom:12}}>🌿 Lifetime Environmental Impact</div>
                   <div style={g(3)}>
                     <div><div style={{fontSize:22,fontWeight:700,color:'#34d399'}}>{fmtN(r.co2S*finance.projectLife)} t</div><div style={{fontSize:12,color:'#6ee7b7'}}>CO₂ avoided over {finance.projectLife} years</div></div>
-                    <div><div style={{fontSize:22,fontWeight:700,color:'#34d399'}}>{fmtN((r.dieselOnlyFuelAnn-r.dieselFuelAnn)*finance.projectLife)} L</div><div style={{fontSize:12,color:'#6ee7b7'}}>Diesel saved over {finance.projectLife} years</div></div>
+                    <div><div style={{fontSize:22,fontWeight:700,color:'#34d399'}}>{fmtN((r.dieselOnlyFuelAnn-r.dieselFuelAnn)*finance.projectLife)} {r.thermalFuelUnit}</div><div style={{fontSize:12,color:'#6ee7b7'}}>Fuel saved over {finance.projectLife} years</div></div>
                     <div><div style={{fontSize:22,fontWeight:700,color:'#34d399'}}>{fmtN(r.treesEquiv*finance.projectLife)}</div><div style={{fontSize:12,color:'#6ee7b7'}}>Tree-equivalent offset</div></div>
                   </div>
                 </div>
