@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, ComposedChart, ReferenceLine } from "recharts";
 import { Sun, Battery, Zap, AlertTriangle, Download, Upload, ChevronDown, ChevronRight, Settings, DollarSign, BarChart3, FileText, Fuel, Leaf, TrendingUp, Info, Share2, Save } from "lucide-react";
 
@@ -266,57 +266,177 @@ const btnStyle = (on) => ({ padding:'5px 10px', borderRadius:6, border:'none', c
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const ttStyle = { background:'#0f172a', border:'1px solid #334155', borderRadius:8 };
 
-// Part-load efficiency curve chart data for selected thermal model
-function PartLoadCurve({ model }) {
-  const points = [25, 30, 40, 50, 60, 70, 80, 90, 100].map(pct => {
-    // Interpolate SFC across load range
-    let sfc;
-    if (pct <= 30) sfc = model.sfcPart;
-    else if (pct <= 60) sfc = model.sfcPart + (model.sfcMid - model.sfcPart) * ((pct - 30) / 30);
-    else sfc = model.sfcMid + (model.sfcBase - model.sfcMid) * ((pct - 60) / 40);
-    return { load: pct + '%', sfc: parseFloat(sfc.toFixed(3)) };
-  });
+const CURVE_LOADS = [20, 40, 60, 80, 100];
+
+// Interpolate SFC from 5-point curve at any load %
+function interpSFC(curve, loadPct) {
+  const pct = Math.max(20, Math.min(100, loadPct * 100));
+  if (pct <= 20) return curve[0];
+  if (pct >= 100) return curve[4];
+  const idx = Math.floor((pct - 20) / 20);
+  const lo = CURVE_LOADS[idx], hi = CURVE_LOADS[idx + 1];
+  const t = (pct - lo) / (hi - lo);
+  return curve[idx] + (curve[idx + 1] - curve[idx]) * t;
+}
+
+// Interactive part-load curve: chart with draggable dots + editable table
+function PartLoadCurve({ curve, setCurve, fuelUnit }) {
+  const chartRef = useRef(null);
+  const [dragging, setDragging] = useState(null); // index being dragged
+
+  const chartData = CURVE_LOADS.map((pct, i) => ({ load: pct + '%', sfc: curve[i] }));
+
+  // Fine-grained interpolated line (every 5%)
+  const lineData = [];
+  for (let p = 20; p <= 100; p += 5) {
+    const idx = Math.min(3, Math.floor((p - 20) / 20));
+    const lo = CURVE_LOADS[idx], hi = CURVE_LOADS[Math.min(4, idx + 1)];
+    const t = lo === hi ? 0 : (p - lo) / (hi - lo);
+    const sfc = curve[idx] + (curve[Math.min(4, idx + 1)] - curve[idx]) * t;
+    lineData.push({ load: p + '%', sfc: parseFloat(sfc.toFixed(4)) });
+  }
+
+  const updatePoint = (i, val) => {
+    const v = Math.max(0.1, Math.min(1.0, parseFloat(val) || curve[i]));
+    const next = [...curve]; next[i] = parseFloat(v.toFixed(4)); setCurve(next);
+  };
+
+  // Custom dot that responds to drag
+  const DraggableDot = (props) => {
+    const { cx, cy, index } = props;
+    return (
+      <circle
+        cx={cx} cy={cy} r={7}
+        fill={dragging === index ? '#fbbf24' : '#ef4444'}
+        stroke="#fff" strokeWidth={2}
+        style={{ cursor:'ns-resize', userSelect:'none' }}
+        onMouseDown={e => { e.preventDefault(); setDragging(index); }}
+      />
+    );
+  };
+
+  useEffect(() => {
+    if (dragging === null) return;
+    const onMove = (e) => {
+      const chart = chartRef.current;
+      if (!chart) return;
+      const rect = chart.getBoundingClientRect();
+      // Chart inner area approx — recharts leaves ~10px top, ~25px bottom margin
+      const chartH = rect.height - 35;
+      const y = Math.max(0, Math.min(chartH, (e.clientY || e.touches?.[0]?.clientY) - rect.top - 10));
+      // Map pixel y to SFC value — need to know domain
+      const allV = curve;
+      const minV = Math.min(...allV) * 0.85;
+      const maxV = Math.max(...allV) * 1.15;
+      const sfc = maxV - (y / chartH) * (maxV - minV);
+      updatePoint(dragging, sfc);
+    };
+    const onUp = () => setDragging(null);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove);
+    window.addEventListener('touchend', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+  }, [dragging, curve]);
+
+  const minV = Math.min(...curve) * 0.85;
+  const maxV = Math.max(...curve) * 1.15;
+
   return (
-    <div style={{ background:'#0f172a', borderRadius:8, padding:'12px 16px', marginTop:10 }}>
-      <div style={{ fontSize:11, color:'#64748b', marginBottom:8 }}>Part-Load Fuel Consumption Curve ({model.fuelUnit}/kWh)</div>
-      <ResponsiveContainer width="100%" height={120}>
-        <LineChart data={points} margin={{ top:4, right:10, bottom:4, left:0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b"/>
-          <XAxis dataKey="load" tick={{ fill:'#64748b', fontSize:10 }}/>
-          <YAxis domain={['auto','auto']} tick={{ fill:'#64748b', fontSize:10 }} width={36}/>
-          <Tooltip contentStyle={ttStyle} formatter={v=>[v + ' ' + model.fuelUnit + '/kWh', 'SFC']}/>
-          <Line dataKey="sfc" stroke="#ef4444" strokeWidth={2} dot={{ r:3, fill:'#ef4444' }}/>
-        </LineChart>
-      </ResponsiveContainer>
+    <div style={{ background:'#0f172a', borderRadius:8, padding:'14px 16px', marginTop:10 }}>
+      <div style={{ fontSize:11, color:'#64748b', marginBottom:10 }}>
+        Part-Load Fuel Consumption Curve ({fuelUnit}/kWh) — drag points or edit table below
+      </div>
+
+      {/* Chart */}
+      <div ref={chartRef} style={{ userSelect:'none', touchAction:'none' }}>
+        <ResponsiveContainer width="100%" height={160}>
+          <LineChart data={lineData} margin={{ top:10, right:16, bottom:4, left:0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b"/>
+            <XAxis dataKey="load" tick={{ fill:'#64748b', fontSize:10 }}/>
+            <YAxis domain={[minV, maxV]} tick={{ fill:'#64748b', fontSize:10 }} width={42}
+              tickFormatter={v => v.toFixed(3)}/>
+            <Tooltip contentStyle={ttStyle} formatter={v => [parseFloat(v).toFixed(4) + ' ' + fuelUnit + '/kWh', 'SFC']}/>
+            {/* smooth interpolated line */}
+            <Line dataKey="sfc" stroke="#ef444466" strokeWidth={2} dot={false} strokeDasharray="4 2"/>
+          </LineChart>
+        </ResponsiveContainer>
+        {/* Overlay draggable dots using absolute positioned SVG over chart */}
+        <div style={{ marginTop:-160, height:160, position:'relative', pointerEvents:'none' }}>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={chartData} margin={{ top:10, right:16, bottom:4, left:0 }}>
+              <XAxis dataKey="load" tick={false} axisLine={false} tickLine={false}/>
+              <YAxis domain={[minV, maxV]} tick={false} axisLine={false} tickLine={false} width={42}/>
+              <Line dataKey="sfc" stroke="transparent" strokeWidth={0}
+                dot={(props) => <DraggableDot {...props} index={props.index}/>}
+                activeDot={false}
+                style={{ pointerEvents:'all' }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* Editable table */}
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:6, marginTop:10 }}>
+        {CURVE_LOADS.map((pct, i) => (
+          <div key={pct} style={{ textAlign:'center' }}>
+            <div style={{ fontSize:10, color:'#64748b', marginBottom:3 }}>{pct}% load</div>
+            <input
+              type="number" step="0.001" min="0.1" max="1.0"
+              value={curve[i]}
+              onChange={e => updatePoint(i, e.target.value)}
+              style={{ ...inp, textAlign:'center', fontSize:12, padding:'5px 4px',
+                borderColor: dragging === i ? '#fbbf24' : '#334155' }}
+            />
+            <div style={{ fontSize:9, color:'#475569', marginTop:2 }}>{fuelUnit}/kWh</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// Service cost summary for selected thermal model
-function ServiceSummary({ model, dieselCap }) {
-  const annualHrs = 4000; // assumed run hours for context
-  const servicesPerYear = annualHrs / model.serviceInterval;
-  const overhaulsPerYear = annualHrs / model.overhaulInterval;
-  const annualServiceCost = Math.round(servicesPerYear * model.minorServiceCost + overhaulsPerYear * model.majorServiceCost);
-  return (
-    <div style={{ background:'#0f172a', borderRadius:8, padding:'12px 14px', marginTop:10, fontSize:12 }}>
-      <div style={{ fontSize:11, color:'#64748b', marginBottom:8 }}>Service Cost Summary (at 4,000 hr/yr run-time)</div>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
-        {[
-          ['Service Interval', model.serviceInterval.toLocaleString() + ' hr'],
-          ['Minor Service', '$' + model.minorServiceCost.toLocaleString()],
-          ['Major Overhaul', '$' + model.majorServiceCost.toLocaleString()],
-          ['Overhaul Interval', model.overhaulInterval.toLocaleString() + ' hr'],
-          ['Est. Services/yr', servicesPerYear.toFixed(1)],
-          ['Annual Svc Cost', '$' + annualServiceCost.toLocaleString()],
-        ].map(([k,v],i) => (
-          <div key={i} style={{ background:'#1e293b', borderRadius:6, padding:'8px 10px' }}>
-            <div style={{ fontSize:10, color:'#64748b' }}>{k}</div>
-            <div style={{ fontSize:13, fontWeight:600, color:'#e2e8f0', marginTop:2 }}>{v}</div>
-          </div>
-        ))}
+// Editable service & efficiency fields for selected thermal model
+function ThermalEditors({ overrides, setOverrides, model }) {
+  const o = overrides;
+  const field = (label, key, unit, hint, step='any') => (
+    <div style={{ marginBottom:10 }}>
+      <label style={{ fontSize:11, color:'#94a3b8', display:'flex', alignItems:'center', marginBottom:3 }}>
+        {label}{hint && <TooltipHint text={hint}/>}
+      </label>
+      <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+        <input
+          type="number" step={step} min="0"
+          value={o[key]}
+          onChange={e => setOverrides({ ...o, [key]: parseFloat(e.target.value) || 0 })}
+          style={{ ...inp, flex:1 }}
+        />
+        {unit && <span style={{ fontSize:11, color:'#64748b', whiteSpace:'nowrap' }}>{unit}</span>}
       </div>
-      {model.notes && <div style={{ marginTop:10, fontSize:11, color:'#64748b', fontStyle:'italic' }}>ℹ {model.notes}</div>}
+    </div>
+  );
+  return (
+    <div style={{ background:'#0f172a', borderRadius:8, padding:'14px 16px', marginTop:10 }}>
+      <div style={{ fontSize:11, color:'#64748b', marginBottom:12 }}>
+        Efficiency &amp; Service Costs — editing overrides model defaults
+      </div>
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:10 }}>
+        {field('CO₂ Factor',     'co2Factor',        `kg/${model.fuelUnit}`, 'CO₂ emissions per fuel unit', '0.01')}
+        {field('O&M Cost',       'maintCost',        '$/kW/yr', 'Annualised maintenance cost used in financial model')}
+        {field('Service Interval',    'serviceInterval',  'hr', 'Hours between scheduled minor services')}
+        {field('Minor Service Cost',  'minorServiceCost', '$',  'Cost per minor service event')}
+        {field('Overhaul Interval',   'overhaulInterval', 'hr', 'Hours between major overhauls')}
+        {field('Major Overhaul Cost', 'majorServiceCost', '$',  'Cost per major overhaul')}
+      </div>
+      {model.notes && (
+        <div style={{ marginTop:10, fontSize:11, color:'#64748b', fontStyle:'italic' }}>ℹ {model.notes}</div>
+      )}
     </div>
   );
 }
@@ -330,6 +450,22 @@ export default function HybridPowerSizing() {
   const [tracking, setTracking]       = useState(0);
   const [battType, setBattType]       = useState(0);
   const [thermalModel, setThermalModel] = useState(1); // index into THERMAL_MODELS
+  const mkOverrides = (idx) => {
+    const m = THERMAL_MODELS[idx];
+    // Build 5-point curve at 20/40/60/80/100% from the 3 anchor values
+    const s20 = m.sfcPart + (m.sfcPart - m.sfcMid) * 0.33; // extrapolate below 30%
+    const s40 = m.sfcPart + (m.sfcMid - m.sfcPart) * 0.5;
+    const s60 = m.sfcMid;
+    const s80 = m.sfcMid + (m.sfcBase - m.sfcMid) * 0.5;
+    const s100 = m.sfcBase;
+    return {
+      sfcCurve: [s20, s40, s60, s80, s100].map(v => parseFloat(v.toFixed(4))),
+      co2Factor: m.co2Factor, maintCost: m.maintCost,
+      serviceInterval: m.serviceInterval, minorServiceCost: m.minorServiceCost,
+      majorServiceCost: m.majorServiceCost, overhaulInterval: m.overhaulInterval,
+    };
+  };
+  const [thermalOverrides, setThermalOverrides] = useState(() => mkOverrides(1));
   const [costs, setCosts]             = useState({ pv:1100, batt:800, diesel:450, fuel:1.85, bos:15, epc:12, land:0 });
   const [opex, setOpex]               = useState({ pvOM:15, battOM:10, dieselOM:0, dieselOMauto:true, insurance:0.5, siteManagement:0, networkFees:0, spares:0, envCompliance:0, waterChem:0, remoteMonitoring:0 });
   const [finance, setFinance]         = useState({ fuelEsc:3, discount:8, projectLife:25, inflationRate:2.5 });
@@ -397,7 +533,7 @@ export default function HybridPowerSizing() {
     await new Promise(r=>setTimeout(r,60));
     try {
       const w=[];
-      const dS = THERMAL_MODELS[thermalModel];
+      const dS = { ...THERMAL_MODELS[thermalModel], ...thermalOverrides };
       const sL=loads.map(l=>l*loadScale);
       const avg=sL.reduce((a,b)=>a+b)/24;
       if(avg<=0) throw new Error('Invalid loads');
@@ -421,11 +557,8 @@ export default function HybridPowerSizing() {
       let dEn=annual-renew;
       if(adv.renewDays>0) dEn=Math.max(0,dEn-dfLoad*adv.renewDays*0.8);
       const dlf=dCap>0?dEn/8760/dCap:0;
-      // Use interpolated SFC based on load factor
-      let sfcEff;
-      if(dlf<0.3) sfcEff=dS.sfcPart;
-      else if(dlf<0.6) sfcEff=dS.sfcPart+(dS.sfcMid-dS.sfcPart)*((dlf-0.3)/0.3);
-      else sfcEff=dS.sfcMid+(dS.sfcBase-dS.sfcMid)*((dlf-0.6)/0.4);
+      // Interpolate SFC from 5-point curve at operating load factor
+      const sfcEff = parseFloat(interpSFC(thermalOverrides.sfcCurve, Math.max(0.2, dlf)).toFixed(4));
       const fuel=dEn*sfcEff;
       if(dlf<0.3&&renewable>70) w.push('Low thermal load factor: '+(dlf*100).toFixed(0)+'%');
       if(dS.fuelType==='Natural Gas') w.push('Natural gas SFC in m³/kWh — update fuel price to $/m³');
@@ -724,7 +857,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                   Generator Type
                   <TooltipHint text="Select from diesel, gas, dual-fuel, LPG, HFO, and biodiesel models. SFC and service data are pre-populated from manufacturer benchmarks."/>
                 </label>
-                <select value={thermalModel} onChange={e=>setThermalModel(+e.target.value)} style={{...sel, fontSize:12}}>
+                <select value={thermalModel} onChange={e=>{const idx=+e.target.value;setThermalModel(idx);setThermalOverrides(mkOverrides(idx));}} style={{...sel, fontSize:12}}>
                   {THERMAL_MODELS.map((m,i)=>(
                     <option key={i} value={i}>{m.name} — {m.fuelType} · {m.sfcBase} {m.fuelUnit}/kWh @ rated</option>
                   ))}
@@ -735,10 +868,10 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
               <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
                 {[
                   ['Fuel', currentThermal.fuelType],
-                  ['Rated SFC', `${currentThermal.sfcBase} ${currentThermal.fuelUnit}/kWh`],
-                  ['50% SFC', `${currentThermal.sfcMid} ${currentThermal.fuelUnit}/kWh`],
-                  ['30% SFC', `${currentThermal.sfcPart} ${currentThermal.fuelUnit}/kWh`],
-                  ['CO₂ Factor', `${currentThermal.co2Factor} kg/${currentThermal.fuelUnit}`],
+                  ['20% SFC', `${thermalOverrides.sfcCurve[0]} ${currentThermal.fuelUnit}/kWh`],
+                  ['60% SFC', `${thermalOverrides.sfcCurve[2]} ${currentThermal.fuelUnit}/kWh`],
+                  ['100% SFC', `${thermalOverrides.sfcCurve[4]} ${currentThermal.fuelUnit}/kWh`],
+                  ['CO₂ Factor', `${thermalOverrides.co2Factor} kg/${currentThermal.fuelUnit}`],
                 ].map(([k,v])=>(
                   <div key={k} style={{background:'#0f172a',borderRadius:6,padding:'6px 10px',border:'1px solid #334155'}}>
                     <div style={{fontSize:9,color:'#64748b'}}>{k}</div>
@@ -747,11 +880,15 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                 ))}
               </div>
 
-              {/* Part-load curve */}
-              <PartLoadCurve model={currentThermal}/>
+              {/* Editable part-load curve */}
+              <PartLoadCurve
+                curve={thermalOverrides.sfcCurve}
+                setCurve={c => setThermalOverrides({...thermalOverrides, sfcCurve: c})}
+                fuelUnit={currentThermal.fuelUnit}
+              />
 
-              {/* Service summary */}
-              <ServiceSummary model={currentThermal}/>
+              {/* Editable efficiency & service fields */}
+              <ThermalEditors overrides={thermalOverrides} setOverrides={setThermalOverrides} model={currentThermal}/>
 
               {/* Sizing options */}
               <div style={{borderTop:'1px solid #334155',marginTop:14,paddingTop:12}}>
@@ -769,15 +906,7 @@ ${pi.engineer?`<div>Prepared by: <span>${pi.engineer}</span></div>`:''}
                 </div>
               </div>
 
-              {/* Override SFC */}
-              <div style={{borderTop:'1px solid #334155',marginTop:12,paddingTop:12}}>
-                <div style={{fontSize:11,color:'#64748b',marginBottom:8}}>Manual SFC Override (leave 0 to use model defaults)</div>
-                <div style={g(3)}>
-                  <IF label={`SFC at Rated (${currentThermal.fuelUnit}/kWh)`} value={0} onChange={()=>{}} hint="Override rated-load SFC. Set 0 to use model default." step="0.001"/>
-                  <IF label={`SFC at 60% (${currentThermal.fuelUnit}/kWh)`} value={0} onChange={()=>{}} hint="Override mid-load SFC." step="0.001"/>
-                  <IF label={`SFC at 30% (${currentThermal.fuelUnit}/kWh)`} value={0} onChange={()=>{}} hint="Override part-load SFC." step="0.001"/>
-                </div>
-              </div>
+
             </Collapsible>
 
             <Collapsible title="Capital & Operating Costs" icon={<DollarSign size={15} style={{color:'#22c55e'}}/>}>
