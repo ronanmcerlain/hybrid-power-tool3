@@ -6,7 +6,7 @@ const LOCATIONS = [
   { name: 'Perth, WA', lat: -31.95, lon: 115.86 },
   { name: 'Darwin, NT', lat: -12.46, lon: 130.84 },
   { name: 'Karratha, WA', lat: -20.74, lon: 116.85 },
-  { name: 'Alice Springs, NT', lat: -23.70, lon: 133.88 },
+  { name: 'Alice1 Springs, NT', lat: -23.70, lon: 133.88 },
   { name: 'Kalgoorlie, WA', lat: -30.75, lon: 121.47 },
   { name: 'Broome, WA', lat: -17.96, lon: 122.24 },
   { name: 'Mt Isa, QLD', lat: -20.73, lon: 139.49 },
