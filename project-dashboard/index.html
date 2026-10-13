@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Project Pinboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+/* Layout: a pegboard wall holding up to 10 job tiles (5 × 2 on a wide screen); click a tile to open its job card. */
+:root {
+  --board: #e3e8ed;
+  --peg: #c4ccd5;
+  --surface: #ffffff;
+  --surface-2: #f2f4f7;
+  --ink: #16202a;
+  --muted: #5a6775;
+  --line: #d2d9e1;
+  --accent: #0b6782;
+  --accent-ink: #ffffff;
+  --ok: #1d7f47;
+  --soon: #a86f00;
+  --crit: #d14a0c;
+  --over: #c0162a;
+  --scope: #6a43d6;
+  --hold: #6b7785;
+  --shadow: 0 1px 2px rgb(20 30 40 / .08), 0 4px 14px rgb(20 30 40 / .06);
+  --font-display: "Barlow Semi Condensed", "Arial Narrow", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Barlow", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --board: #0e141a; --peg: #1f2a35; --surface: #18212b; --surface-2: #202b36; --ink: #e5ecf2; --muted: #93a1b0;
+    --line: #2d3b49; --accent: #52b8d6; --accent-ink: #06222c; --ok: #44c27a; --soon: #e5b021; --crit: #f2803f;
+    --over: #f45563; --scope: #a48cf8; --hold: #8b97a4; --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 6px 18px rgb(0 0 0 / .25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --board: #0e141a; --peg: #1f2a35; --surface: #18212b; --surface-2: #202b36; --ink: #e5ecf2; --muted: #93a1b0;
+  --line: #2d3b49; --accent: #52b8d6; --accent-ink: #06222c; --ok: #44c27a; --soon: #e5b021; --crit: #f2803f;
+  --over: #f45563; --scope: #a48cf8; --hold: #8b97a4; --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 6px 18px rgb(0 0 0 / .25);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  margin: 0; background: var(--board); color: var(--ink);
+  font: 15px/1.4 var(--font-body);
+  background-image: radial-gradient(var(--peg) 1.4px, transparent 1.9px);
+  background-size: 22px 22px;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3, h4 { font-family: var(--font-display); margin: 0; text-wrap: balance; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------- Header ---------- */
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  padding-block: 10px; padding-inline: 20px;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+}
+.brand { display: flex; flex-direction: column; min-width: 0; margin-right: 6px; }
+.brand h1 { font-size: 24px; font-weight: 700; letter-spacing: .01em; line-height: 1.05; }
+.brand .today { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 500;
+}
+.chip b { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+.chip .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c, var(--muted)); }
+.chip[aria-pressed="true"] { border-color: var(--c, var(--accent)); box-shadow: inset 0 0 0 1px var(--c, var(--accent)); background: color-mix(in srgb, var(--c, var(--accent)) 10%, var(--surface)); }
+.chip.zero { opacity: .55; }
+.spacer { flex: 1; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.search { width: 190px; max-width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.seg button { border: 0; background: none; padding: 7px 12px; font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.btn {
+  border: 1px solid var(--line); background: var(--surface); padding: 7px 12px; border-radius: 8px;
+  font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.danger { color: var(--over); }
+.btn.small { padding: 4px 9px; font-size: 13px; }
+.btn.icon { padding: 7px 9px; }
+.btn svg { width: 16px; height: 16px; flex: none; }
+.bell { position: relative; }
+.bell .count { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--over); color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; padding: 0 4px; }
+.sync { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 4px 0; }
+.sync .led { width: 8px; height: 8px; border-radius: 50%; background: var(--hold); }
+.sync.shared .led { background: var(--ok); }
+.sync.err .led { background: var(--over); }
+
+/* ---------- Banners ---------- */
+.banner {
+  margin: 14px 20px 0; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 14px;
+}
+.banner.warn { border-color: var(--soon); background: color-mix(in srgb, var(--soon) 10%, var(--surface)); }
+
+/* ---------- Board ---------- */
+main { padding-block: 18px 28px; padding-inline: 20px; }
+.board { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+@media (min-width: 640px) { .board { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .board { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+
+.tile {
+  --lvl: var(--ok);
+  position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 18px 14px 12px; cursor: pointer; text-align: left;
+  display: flex; flex-direction: column; gap: 9px; min-width: 0;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.tile:hover { transform: translateY(-2px); box-shadow: var(--shadow), 0 10px 24px rgb(20 30 40 / .10); }
+.tile .magnet {
+  position: absolute; top: -7px; left: 50%; translate: -50% 0; width: 16px; height: 16px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--lvl) 40%, #fff), var(--lvl) 60%);
+  box-shadow: 0 2px 3px rgb(0 0 0 / .3);
+}
+.tile.lvl-ok { --lvl: var(--ok); }
+.tile.lvl-none { --lvl: var(--hold); }
+.tile.lvl-soon { --lvl: var(--soon); border-color: color-mix(in srgb, var(--soon) 55%, var(--line)); }
+.tile.lvl-critical { --lvl: var(--crit); border-color: var(--crit); background: color-mix(in srgb, var(--crit) 9%, var(--surface)); }
+.tile.lvl-overdue { --lvl: var(--over); border-color: var(--over); background: color-mix(in srgb, var(--over) 11%, var(--surface)); animation: alarm 2.4s ease-in-out infinite; }
+.tile.hold { --lvl: var(--hold); opacity: .78; background: repeating-linear-gradient(135deg, var(--surface) 0 12px, var(--surface-2) 12px 24px); border-color: var(--line); animation: none; }
+@keyframes alarm { 50% { box-shadow: var(--shadow), 0 0 0 4px color-mix(in srgb, var(--over) 28%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .tile, .tile.lvl-overdue { animation: none; transition: none; } }
+
+.tile-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.job { font-family: var(--font-display); font-weight: 700; font-size: 15px; letter-spacing: .04em; color: var(--muted); }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap;
+  color: var(--c, var(--muted)); background: color-mix(in srgb, var(--c, var(--muted)) 13%, transparent);
+}
+.c-ok { --c: var(--ok); } .c-soon { --c: var(--soon); } .c-critical { --c: var(--crit); } .c-overdue { --c: var(--over); }
+.c-none, .c-hold { --c: var(--hold); } .c-scope { --c: var(--scope); }
+.tile h3 { font-size: 20px; font-weight: 700; line-height: 1.12; overflow-wrap: anywhere; }
+.client { margin: -5px 0 0; color: var(--muted); font-size: 13.5px; overflow-wrap: anywhere; }
+.phase { font-size: 12px; font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: .06em; }
+.specs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; }
+.specs div { background: var(--surface-2); border-radius: 6px; padding: 5px 8px; min-width: 0; }
+.specs dt { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.specs dd { margin: 0; font-family: var(--font-display); font-weight: 600; font-size: 16px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.specs .wide { grid-column: 1 / -1; }
+.next { border-top: 1px dashed var(--line); padding-top: 8px; display: grid; gap: 2px; font-size: 13.5px; }
+.next .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.next .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.next .row span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.due { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--c, var(--muted)); }
+.bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-2); }
+.bar i { display: block; height: 100%; }
+.bar .b-done { background: var(--ok); } .bar .b-doing { background: var(--accent); } .bar .b-over { background: var(--over); }
+.counts { margin: 0; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.counts .hot { color: var(--over); font-weight: 600; }
+.tile-foot { margin-top: auto !important; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--surface-2); border: 1px solid var(--line); font-size: 10.5px; font-weight: 700; color: var(--ink); }
+.ribbon {
+  position: absolute; top: 10px; right: -6px; background: var(--scope); color: #fff; font-size: 11px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; padding: 3px 8px 3px 10px; border-radius: 3px 0 0 3px;
+  box-shadow: 0 2px 4px rgb(0 0 0 / .2);
+}
+.ribbon::after { content: ""; position: absolute; right: 0; bottom: -6px; border-left: 6px solid color-mix(in srgb, var(--scope) 60%, #000); border-bottom: 6px solid transparent; }
+.tile.has-ribbon .tile-head { padding-right: 110px; }
+
+.slot-empty {
+  border: 2px dashed var(--line); border-radius: var(--radius); min-height: 180px; display: grid; place-items: center;
+  color: var(--muted); background: color-mix(in srgb, var(--surface) 40%, transparent); font-weight: 500;
+}
+.pager { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 18px; }
+.pager button[aria-current="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.empty { text-align: center; color: var(--muted); padding: 60px 16px; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--line); }
+
+/* ---------- Task list view ---------- */
+.tasks-view { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.tv-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.tv-controls label { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+.tv-group h3 { font-size: 15px; text-transform: uppercase; letter-spacing: .07em; padding: 10px 14px 6px; background: var(--surface-2); border-top: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+.tv-group h3 small { font-family: var(--font-body); color: var(--muted); font-weight: 500; letter-spacing: 0; text-transform: none; }
+
+/* ---------- Task rows (shared) ---------- */
+.task-list { list-style: none; margin: 0; padding: 0; }
+.task {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 10px; align-items: center;
+  padding: 8px 14px; border-top: 1px solid var(--line);
+}
+.task:first-child { border-top: 0; }
+.task.lvl-overdue { background: color-mix(in srgb, var(--over) 8%, transparent); }
+.task.lvl-critical { background: color-mix(in srgb, var(--crit) 7%, transparent); }
+.task .t-title { font-weight: 600; overflow-wrap: anywhere; }
+.task.st-done .t-title { text-decoration: line-through; color: var(--muted); font-weight: 500; }
+.task .t-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; color: var(--muted); margin-top: 3px; }
+.task .t-proj { color: var(--accent); background: none; border: 0; padding: 0; font-weight: 600; text-align: left; }
+.task .t-actions { display: flex; gap: 4px; }
+.st {
+  border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; min-width: 92px;
+  background: var(--surface);
+}
+.st.todo { color: var(--muted); }
+.st.doing { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+.st.done { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, var(--surface)); }
+.mini { border: 1px solid transparent; background: none; border-radius: 6px; padding: 2px 6px; font-size: 13px; color: var(--muted); max-width: 100%; }
+.mini:hover, .mini:focus { border-color: var(--line); background: var(--surface); }
+input.mini { width: 140px; }
+input[type="date"].mini { width: 138px; }
+.iconbtn { border: 0; background: none; color: var(--muted); padding: 5px; border-radius: 6px; display: inline-grid; place-items: center; }
+.iconbtn:hover { background: var(--surface-2); color: var(--ink); }
+.iconbtn svg { width: 16px; height: 16px; }
+
+/* ---------- Dialogs ---------- */
+dialog {
+  border: 1px solid var(--line); border-radius: 14px; padding: 0; background: var(--surface); color: var(--ink);
+  width: min(1120px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); box-shadow: 0 20px 60px rgb(0 0 0 / .35);
+}
+dialog.narrow { width: min(560px, calc(100vw - 32px)); }
+dialog::backdrop { background: rgb(10 16 22 / .55); }
+.dlg { display: flex; flex-direction: column; max-height: calc(100dvh - 34px); }
+.dlg-head { display: flex; gap: 12px; align-items: flex-start; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+.dlg-head .ttl { flex: 1; min-width: 0; }
+.dlg-head h2 { font-size: 26px; line-height: 1.1; overflow-wrap: anywhere; }
+.dlg-head .sub { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; margin-top: 4px; }
+.dlg-body { overflow: auto; padding: 18px 20px 22px; }
+.dlg-foot { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.cols { display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .cols { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); } }
+.cols > div { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+section.card { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+section.card > h3 {
+  font-size: 15px; text-transform: uppercase; letter-spacing: .08em; padding: 9px 14px; background: var(--surface-2);
+  border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px;
+}
+section.card > h3 .grow { flex: 1; }
+section.card > h3 .btn { text-transform: none; letter-spacing: 0; font-family: var(--font-body); }
+.pad { padding: 12px 14px; }
+.form-grid { display: grid; gap: 10px 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid .full { grid-column: 1 / -1; }
+.field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.field > span { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 600; }
+.field input, .field select, .field textarea, .inp {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); min-width: 0;
+}
+.field textarea { resize: vertical; min-height: 54px; }
+.unit { position: relative; }
+.unit input { padding-right: 46px; }
+.unit em { position: absolute; right: 9px; top: 50%; translate: 0 -50%; font-style: normal; font-size: 12px; color: var(--muted); pointer-events: none; }
+.check { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; }
+.hint { font-size: 12.5px; color: var(--muted); margin: 0; }
+
+.ms { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--line); }
+.ms:first-child { border-top: 0; }
+.ms input[type="text"] { border: 1px solid transparent; background: none; padding: 4px 6px; border-radius: 6px; width: 100%; font-weight: 600; }
+.ms input[type="text"]:hover, .ms input[type="text"]:focus { border-color: var(--line); background: var(--surface); }
+.ms.done input[type="text"] { text-decoration: line-through; color: var(--muted); font-weight: 500; }
+@media (max-width: 520px) { .ms { grid-template-columns: auto minmax(0, 1fr) auto; } .ms .due { grid-column: 2; } }
+
+.addtask { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); padding: 12px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
+.addtask .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.addtask .row > * { flex: 1 1 140px; }
+.addtask .row > .check, .addtask .row > .btn { flex: 0 0 auto; }
+
+.log { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
+.log li { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 14px; }
+.log li:first-child { border-top: 0; }
+.log .when { font-size: 12px; color: var(--muted); display: block; }
+.log li.unack { background: color-mix(in srgb, var(--scope) 9%, transparent); }
+.chg { font-weight: 600; }
+.chg s { color: var(--muted); font-weight: 500; }
+.post { display: flex; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.post input { flex: 1; min-width: 0; }
+
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alert-list li { border-top: 1px solid var(--line); }
+.alert-list li:first-child { border-top: 0; }
+.alert-list button { all: unset; box-sizing: border-box; cursor: pointer; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; padding: 10px 20px; }
+.alert-list button:hover, .alert-list button:focus-visible { background: var(--surface-2); }
+.alert-list .what { font-weight: 600; overflow-wrap: anywhere; }
+.alert-list .where { font-size: 13px; color: var(--muted); }
+
+.team-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 8px; margin-bottom: 8px; }
+.settings-sec { display: grid; gap: 10px; padding-bottom: 18px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+.settings-sec:last-child { border-bottom: 0; margin-bottom: 0; }
+.settings-sec h3 { font-size: 17px; }
+.btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ---------- Toasts ---------- */
+.toasts { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 100; display: grid; gap: 8px; max-width: min(380px, calc(100vw - 32px)); }
+.toast { background: var(--ink); color: var(--surface); padding: 10px 14px; border-radius: 8px; box-shadow: var(--shadow); font-size: 14px; animation: rise .2s ease; }
+.toast.err { background: var(--over); color: #fff; }
+@keyframes rise { from { transform: translateY(8px); opacity: 0; } }
+
+/* ---------- Wall display mode ---------- */
+body.wall .tools, body.wall .banner, body.wall .pager .btn:not([aria-current]) { display: none; }
+body.wall .brand h1 { font-size: 30px; }
+.wall-exit { display: none; }
+body.wall .wall-exit { display: inline-flex; }
+
+@media (max-width: 640px) {
+  .top { padding-inline: 16px; }
+  main { padding-inline: 16px; }
+  .banner { margin-inline: 16px; }
+  .search { width: 100%; }
+  .tools { width: 100%; }
+  .dlg-head, .dlg-body, .dlg-foot { padding-inline: 16px; }
+  .form-grid { grid-template-columns: minmax(0, 1fr); }
+  .team-row { grid-template-columns: minmax(0, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1 id="boardTitle">Project Board</h1>
+    <span class="today" id="todayLabel"></span>
+  </div>
+  <div class="chips" id="chips" role="group" aria-label="Filter projects"></div>
+  <div class="spacer"></div>
+  <div class="tools">
+    <input id="search" class="search" type="search" placeholder="Search job, client, site, person" aria-label="Search projects">
+    <div class="seg" role="group" aria-label="View">
+      <button type="button" data-action="view" data-v="board" aria-pressed="true">Board</button>
+      <button type="button" data-action="view" data-v="tasks" aria-pressed="false">Tasks</button>
+    </div>
+    <button type="button" class="btn icon bell" data-action="alerts" title="Items needing attention" aria-label="Items needing attention">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+      <span class="count" id="bellCount" hidden></span>
+    </button>
+    <button type="button" class="btn icon" data-action="wall" title="Wall display mode" aria-label="Wall display mode">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+    </button>
+    <button type="button" class="btn icon" data-action="settings" title="Settings, team and data file" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button type="button" class="btn primary" data-action="new-project">+ New project</button>
+  </div>
+  <button type="button" class="sync" id="syncStatus" data-action="settings"><span class="led"></span><span id="syncText">Saved on this computer</span></button>
+  <button type="button" class="btn small wall-exit" data-action="wall">Exit wall mode</button>
+</header>
+
+<div id="banners"></div>
+<main id="main"></main>
+
+<datalist id="teamList"></datalist>
+<input type="file" id="importFile" accept="application/json,.json" hidden>
+
+<dialog id="projectDlg"></dialog>
+<dialog id="settingsDlg"></dialog>
+<dialog id="alertsDlg" class="narrow"></dialog>
+<dialog id="confirmDlg" class="narrow"></dialog>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+'use strict';
+/* =====================================================================
+   Project Pinboard — single-file project dashboard.
+   Data lives in one JSON object. It is cached in this browser and, when
+   connected, saved to a shared .json file (network drive / synced
+   SharePoint library) that everyone's copy of the page reads and merges.
+   ===================================================================== */
+
+const PAGE_SIZE = 10;
+const PHASES = ['Tender', 'Design', 'Procurement', 'Build / FAT', 'Delivery', 'Install', 'Commissioning', 'Handover', 'Closed'];
+const SCOPE_FIELDS = [
+  { key: 'genQty', label: 'Generators', unit: 'qty' },
+  { key: 'genKva', label: 'Generator size', unit: 'kVA' },
+  { key: 'fuelL', label: 'Sub-base fuel tank', unit: 'L' },
+  { key: 'bessKwh', label: 'BESS', unit: 'kWh' },
+  { key: 'pvKwp', label: 'Solar PV', unit: 'kWp' },
+  { key: 'scopeNotes', label: 'Scope notes', unit: '' },
+];
+const STATUS = { todo: 'To do', doing: 'In progress', done: 'Done' };
+const NEXT_STATUS = { todo: 'doing', doing: 'done', done: 'todo' };
+const LEVELS = {
+  overdue: { rank: 4, label: 'Overdue' },
+  critical: { rank: 3, label: 'Critical' },
+  soon: { rank: 2, label: 'Due soon' },
+  ok: { rank: 1, label: 'On track' },
+  none: { rank: 0, label: 'No dates' },
+};
+const LS_DATA = 'pmboard.data.v1', LS_ME = 'pmboard.me', LS_SNOOZE = 'pmboard.alertSnooze';
+
+let data;
+const ui = { view: 'board', page: 0, filter: 'all', search: '', openId: null, showDone: false, tvGroup: 'due', tvPerson: '', tvShowDone: false, wallTimer: null };
+const store = { handle: null, lastModified: 0, saving: false, error: '' };
+
+/* ---------- small helpers ---------- */
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const nowIso = () => new Date().toISOString();
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } };
+const me = () => lsGet(LS_ME) || '';
+const nf = new Intl.NumberFormat('en-AU');
+const fmtNum = (n) => (n === '' || n == null || isNaN(n)) ? '' : nf.format(Number(n));
+
+function midnight(d = new Date()) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function parseDate(s) { if (!s) return null; const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+function isoDate(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function addDays(n) { const d = midnight(); d.setDate(d.getDate() + n); return isoDate(d); }
+function daysUntil(s) { const d = parseDate(s); return d ? Math.round((d - midnight()) / 86400000) : null; }
+function fmtDate(s) {
+  const d = parseDate(s); if (!d) return '';
+  const opts = { day: 'numeric', month: 'short' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString('en-AU', opts);
+}
+function dueText(days) {
+  if (days == null) return '';
+  if (days < -1) return `${-days} days late`;
+  if (days === -1) return '1 day late';
+  if (days === 0) return 'Due today';
+  if (days === 1) return 'Tomorrow';
+  return `in ${days} days`;
+}
+function ago(iso) {
+  if (!iso) return '';
+  const s = (Date.now() - new Date(iso)) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  const d = Math.floor(s / 86400);
+  return d === 1 ? 'yesterday' : `${d} days ago`;
+}
+function stamp(iso) { const d = new Date(iso); return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); }
+function initials(name) { return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join(''); }
+
+function levelFor(dateStr, done) {
+  if (done || !dateStr) return 'none';
+  const d = daysUntil(dateStr), s = data.settings;
+  if (d < 0) return 'overdue';
+  if (d <= s.critDays) return 'critical';
+  if (d <= s.warnDays) return 'soon';
+  return 'ok';
+}
+
+/* ---------- data model ---------- */
+function defaults() {
+  return { version: 1, sample: false, savedAt: '', settings: { title: 'Project Board', warnDays: 14, critDays: 7, team: [], emailMode: 'outlook', flowUrl: '', updatedAt: '' }, projects: [] };
+}
+function normalize(d) {
+  const base = defaults();
+  d = Object.assign(base, d || {});
+  d.settings = Object.assign(defaults().settings, d.settings || {});
+  d.projects = (d.projects || []).map((p) => Object.assign({ milestones: [], tasks: [], updates: [], scopeLog: [] }, p));
+  return d;
+}
+function newProject() {
+  return {
+    id: uid(), createdAt: nowIso(), updatedAt: nowIso(), jobNo: '', name: 'New project', client: '', site: '', pm: me(),
+    phase: 'Tender', onHold: false, archived: false, deleted: false,
+    genQty: '', genKva: '', fuelL: '', bessKwh: '', pvKwp: '', scopeNotes: '',
+    milestones: [], tasks: [], updates: [], scopeLog: [],
+  };
+}
+const live = (arr) => arr.filter((x) => !x.deleted);
+const activeProjects = () => data.projects.filter((p) => !p.deleted && !p.archived);
+const findProject = (id) => data.projects.find((p) => p.id === id);
+function touch(p) { p.updatedAt = nowIso(); }
+
+function projectInfo(p) {
+  const items = [];
+  live(p.milestones).forEach((m) => { if (!m.done && m.date) items.push({ kind: 'Milestone', name: m.name || 'Milestone', date: m.date, days: daysUntil(m.date), lvl: levelFor(m.date, false), ref: m }); });
+  live(p.tasks).forEach((t) => { if (t.status !== 'done' && t.due) items.push({ kind: 'Task', name: t.title, who: t.assignee, date: t.due, days: daysUntil(t.due), lvl: levelFor(t.due, false), ref: t }); });
+  items.sort((a, b) => a.days - b.days);
+  let level = 'none';
+  items.forEach((i) => { if (LEVELS[i.lvl].rank > LEVELS[level].rank) level = i.lvl; });
+  const nextMs = live(p.milestones).filter((m) => !m.done && m.date).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const tasks = live(p.tasks);
+  const counts = {
+    total: tasks.length,
+    done: tasks.filter((t) => t.status === 'done').length,
+    doing: tasks.filter((t) => t.status === 'doing').length,
+    todo: tasks.filter((t) => t.status === 'todo').length,
+    overdue: tasks.filter((t) => t.status !== 'done' && t.due && daysUntil(t.due) < 0).length,
+  };
+  const scopeOpen = live(p.scopeLog).filter((s) => !s.ack).length;
+  return { level, items, nextMs, counts, scopeOpen, soonest: items[0] ? items[0].days : 9999 };
+}
+
+/* ---------- merge (for shared-file edits by several people) ---------- */
+function newer(a, b) { return (a.updatedAt || a.at || '') >= (b.updatedAt || b.at || '') ? a : b; }
+function mergeById(a = [], b = []) {
+  const map = new Map();
+  a.forEach((x) => map.set(x.id, x));
+  b.forEach((x) => { const y = map.get(x.id); map.set(x.id, y ? newer(y, x) : x); });
+  return [...map.values()];
+}
+function mergeData(local, remote) {
+  remote = normalize(remote);
+  const out = normalize(local);
+  out.settings = newer(out.settings, remote.settings);
+  out.sample = local.sample && remote.sample;
+  const map = new Map(out.projects.map((p) => [p.id, p]));
+  remote.projects.forEach((rp) => {
+    const lp = map.get(rp.id);
+    if (!lp) { map.set(rp.id, rp); return; }
+    const base = { ...newer(lp, rp) };
+    ['milestones', 'tasks', 'updates', 'scopeLog'].forEach((k) => { base[k] = mergeById(lp[k], rp[k]); });
+    map.set(rp.id, base);
+  });
+  out.projects = [...map.values()];
+  return out;
+}
+
+/* ---------- storage ---------- */
+function idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('pmboard', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function idbGet(k) { const db = await idb(); return new Promise((res, rej) => { const q = db.transaction('kv').objectStore('kv').get(k); q.onsuccess = () => res(q.result); q.onerror = () => rej(q.error); }); }
+async function idbSet(k, v) { const db = await idb(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); v === undefined ? t.objectStore('kv').delete(k) : t.objectStore('kv').put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+
+let saveTimer = null;
+function save() {
+  data.savedAt = nowIso();
+  lsSet(LS_DATA, JSON.stringify(data));
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(writeShared, 350);
+}
+async function writeShared() {
+  if (!store.handle) return;
+  if (store.saving) { saveTimer = setTimeout(writeShared, 300); return; }
+  store.saving = true;
+  try {
+    const f = await store.handle.getFile();
+    if (store.lastModified && f.lastModified !== store.lastModified && f.size) {
+      data = mergeData(data, JSON.parse(await f.text()));
+    }
+    const w = await store.handle.createWritable();
+    await w.write(JSON.stringify(data, null, 1));
+    await w.close();
+    store.lastModified = (await store.handle.getFile()).lastModified;
+    store.error = '';
+  } catch (e) {
+    store.error = 'Could not save to the shared file. Changes are kept in this browser and will save when the file is reachable.';
+  }
+  store.saving = false;
+  renderSync();
+}
+async function pollShared() {
+  if (!store.handle || store.saving) return;
+  try {
+    const f = await store.handle.getFile();
+    if (f.lastModified === store.lastModified) return;
+    data = mergeData(data, JSON.parse(await f.text()));
+    store.lastModified = f.lastModified;
+    lsSet(LS_DATA, JSON.stringify(data));
+    store.error = '';
+    renderAll({ fromRemote: true });
+  } catch { store.error = 'The shared file is not reachable right now.'; renderSync(); }
+}
+async function connectHandle(handle, mode) {
+  try {
+    const perm = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { toast('Permission to edit the file was not given.', true); return; }
+    const f = await handle.getFile();
+    const text = mode === 'new' ? '' : await f.text();
+    if (text.trim()) {
+      const remote = normalize(JSON.parse(text));
+      data = data.sample ? remote : mergeData(data, remote);
+    }
+    store.handle = handle; store.lastModified = 0;
+    await idbSet('handle', handle);
+    save();
+    await writeShared();
+    renderAll();
+    toast(`Connected to ${handle.name}. Everyone who opens this file will see the same board.`);
+  } catch (e) {
+    toast('That file could not be read as board data. Pick the board .json file or create a new one.', true);
+  }
+}
+async function pickFile(mode) {
+  if (!('showOpenFilePicker' in window)) { toast('This browser cannot save to shared files. Open the page in Microsoft Edge or Google Chrome.', true); return; }
+  try {
+    const opts = { types: [{ description: 'Board data', accept: { 'application/json': ['.json'] } }] };
+    const handle = mode === 'new'
+      ? await window.showSaveFilePicker({ ...opts, suggestedName: 'project-board-data.json' })
+      : (await window.showOpenFilePicker(opts))[0];
+    await connectHandle(handle, mode);
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    toast('File access is blocked in this view. Download the page and open it from your network drive in Edge or Chrome.', true);
+  }
+}
+
+/* ---------- notifications (email) ---------- */
+function person(name) { return data.settings.team.find((p) => p.name.trim().toLowerCase() === String(name || '').trim().toLowerCase()); }
+async function notifyTask(p, t, reason) {
+  const who = person(t.assignee);
+  if (!t.assignee) { toast('Pick a person for this task first.', true); return; }
+  if (!who || !who.email) { toast(`No email address for ${t.assignee}. Add it in Settings under Team.`, true); return; }
+  const first = who.name.split(' ')[0];
+  const subject = `[${p.jobNo || 'Job'}] ${reason === 'chase' ? 'Reminder' : 'New task'}: ${t.title}`;
+  const body = [
+    `Hi ${first},`, '',
+    reason === 'chase' ? `A reminder about your task on ${p.jobNo} ${p.name}:` : `You have been given a task on ${p.jobNo} ${p.name}:`, '',
+    `Task: ${t.title}`,
+    `Due: ${t.due ? fmtDate(t.due) + ' (' + dueText(daysUntil(t.due)) + ')' : 'no date set'}`,
+    `Status: ${STATUS[t.status]}`,
+    `From: ${me() || 'Project board'}`, '',
+    'Please mark it In progress or Done on the project board.',
+  ].join('\n');
+  t.notifiedAt = nowIso(); touch(p); save();
+  const s = data.settings;
+  if (s.emailMode === 'flow' && s.flowUrl) {
+    try {
+      const r = await fetch(s.flowUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: who.email, subject, body, jobNo: p.jobNo, project: p.name, task: t.title, due: t.due, assignedBy: me() }) });
+      if (!r.ok) throw new Error(r.status);
+      toast(`Email sent to ${who.name}.`);
+      return;
+    } catch { toast('The automatic email service did not respond. Opening a draft in your mail app instead.', true); }
+  }
+  const a = document.createElement('a');
+  a.href = `mailto:${encodeURIComponent(who.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  a.click();
+  toast(`Email to ${who.name} drafted in your mail app (${who.email}). Press Send to notify them.`);
+}
+
+/* ---------- UI: toasts & confirm ---------- */
+function toast(msg, err) {
+  const el = document.createElement('div');
+  el.className = 'toast' + (err ? ' err' : '');
+  el.textContent = msg;
+  $('#toasts').append(el);
+  setTimeout(() => el.remove(), err ? 7000 : 4500);
+}
+function askConfirm(message, okLabel = 'Confirm') {
+  const dlg = $('#confirmDlg');
+  dlg.innerHTML = `<div class="dlg"><div class="dlg-body"><p style="margin:0;font-size:16px">${esc(message)}</p></div>
+    <div class="dlg-foot"><button class="btn" value="no" id="cfNo">Cancel</button><button class="btn primary" id="cfYes">${esc(okLabel)}</button></div></div>`;
+  return new Promise((res) => {
+    const done = (v) => { dlg.close(); res(v); };
+    $('#cfNo', dlg).onclick = () => done(false);
+    $('#cfYes', dlg).onclick = () => done(true);
+    dlg.oncancel = () => res(false);
+    dlg.showModal();
+  });
+}
+
+/* ---------- render: header ---------- */
+function filtered() {
+  const q = ui.search.trim().toLowerCase();
+  return activeProjects().filter((p) => {
+    if (q && ![p.jobNo, p.name, p.client, p.site, p.pm, p.phase].join(' ').toLowerCase().includes(q)) return false;
+    const info = projectInfo(p);
+    switch (ui.filter) {
+      case 'attention': return !p.onHold && (info.level === 'overdue' || info.level === 'critical');
+      case 'soon': return !p.onHold && info.level === 'soon';
+      case 'scope': return info.scopeOpen > 0;
+      case 'hold': return p.onHold;
+      default: return true;
+    }
+  });
+}
+function attentionItems() {
+  const out = [];
+  activeProjects().filter((p) => !p.onHold).forEach((p) => projectInfo(p).items.forEach((i) => { if (i.lvl === 'overdue' || i.lvl === 'critical') out.push({ ...i, p }); }));
+  return out.sort((a, b) => a.days - b.days);
+}
+function renderHeader() {
+  $('#boardTitle').textContent = data.settings.title || 'Project Board';
+  document.title = data.settings.title || 'Project Pinboard';
+  $('#todayLabel').textContent = new Date().toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const ps = activeProjects();
+  const infos = ps.map((p) => [p, projectInfo(p)]);
+  const n = {
+    all: ps.length,
+    attention: infos.filter(([p, i]) => !p.onHold && (i.level === 'overdue' || i.level === 'critical')).length,
+    soon: infos.filter(([p, i]) => !p.onHold && i.level === 'soon').length,
+    scope: infos.filter(([, i]) => i.scopeOpen > 0).length,
+    hold: ps.filter((p) => p.onHold).length,
+  };
+  const chip = (f, label, color) => `<button type="button" class="chip ${n[f] ? '' : 'zero'}" data-action="filter" data-f="${f}" aria-pressed="${ui.filter === f}" style="${color ? `--c:var(${color})` : ''}">${color ? '<span class="dot"></span>' : ''}<b class="num">${n[f]}</b> ${label}</button>`;
+  $('#chips').innerHTML = chip('all', 'Projects') + chip('attention', 'Critical / overdue', '--over') + chip('soon', 'Due soon', '--soon') + chip('scope', 'Scope changed', '--scope') + chip('hold', 'On hold', '--hold');
+  const a = attentionItems().length;
+  const bc = $('#bellCount'); bc.hidden = !a; bc.textContent = a;
+  $('#teamList').innerHTML = data.settings.team.map((p) => `<option value="${esc(p.name)}"></option>`).join('');
+  document.querySelectorAll('[data-action="view"]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.v === ui.view));
+  renderSync();
+}
+function renderSync() {
+  const el = $('#syncStatus');
+  el.classList.toggle('shared', !!store.handle && !store.error);
+  el.classList.toggle('err', !!store.error);
+  $('#syncText').textContent = store.error ? 'Shared file not reachable'
+    : store.handle ? `Shared file: ${store.handle.name}${data.savedAt ? ' · saved ' + new Date(data.savedAt).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }) : ''}`
+    : 'Saved in this browser only';
+}
+async function renderBanners() {
+  let html = '';
+  if (data.sample) html += `<div class="banner"><strong>These are example projects.</strong> Try clicking a tile, ticking a task or changing a generator size. <span class="spacer"></span><button class="btn small" data-action="clear-sample">Clear examples and start my board</button></div>`;
+  if (!store.handle) {
+    let h = null; try { h = await idbGet('handle'); } catch { /* no IndexedDB */ }
+    if (h) html += `<div class="banner warn">The board was last connected to <strong>${esc(h.name)}</strong>. Reconnect to load your team's latest changes. <span class="spacer"></span><button class="btn small primary" data-action="reconnect">Reconnect</button></div>`;
+  }
+  $('#banners').innerHTML = html;
+}
+
+/* ---------- render: board ---------- */
+function specCell(label, value, wide) { return value ? `<div class="${wide ? 'wide' : ''}"><dt>${label}</dt><dd>${value}</dd></div>` : ''; }
+function tileHtml(p) {
+  const i = projectInfo(p);
+  const lvl = p.onHold ? 'none' : i.level;
+  const gens = p.genQty ? `${fmtNum(p.genQty)} × ${p.genKva ? fmtNum(p.genKva) + ' kVA' : '?'}` : '';
+  const specs = specCell('Gensets', gens, !p.fuelL) + specCell('Sub-base tank', p.fuelL ? fmtNum(p.fuelL) + ' L' : '') +
+    specCell('BESS', p.bessKwh ? fmtNum(p.bessKwh) + ' kWh' : '') + specCell('Solar PV', p.pvKwp ? fmtNum(p.pvKwp) + ' kWp' : '');
+  const first = i.items[0];
+  const nextMs = i.nextMs;
+  const showItem = first && (first.lvl === 'overdue' || first.lvl === 'critical') ? first : (nextMs ? { kind: 'Milestone', name: nextMs.name, date: nextMs.date, days: daysUntil(nextMs.date), lvl: levelFor(nextMs.date) } : first);
+  const c = i.counts;
+  const pct = (n) => c.total ? (n / c.total * 100).toFixed(1) : 0;
+  const statusLabel = p.onHold ? 'On hold' : LEVELS[i.level].label;
+  return `<article class="tile lvl-${lvl} ${p.onHold ? 'hold' : ''} ${i.scopeOpen ? 'has-ribbon' : ''}" data-action="open" data-id="${p.id}" tabindex="0" role="button" aria-label="${esc(p.jobNo + ' ' + p.name + ', ' + statusLabel)}">
+    <span class="magnet" aria-hidden="true"></span>
+    ${i.scopeOpen ? `<span class="ribbon">Scope change</span>` : ''}
+    <div class="tile-head"><span class="job">${esc(p.jobNo || 'No job no.')}</span>${i.scopeOpen ? '' : `<span class="pill c-${p.onHold ? 'hold' : i.level}">${statusLabel}</span>`}</div>
+    <div><span class="phase">${esc(p.phase)}</span><h3>${esc(p.name)}</h3></div>
+    <p class="client">${esc([p.client, p.site].filter(Boolean).join(' · ') || 'Client and site not set')}</p>
+    ${specs ? `<dl class="specs">${specs}</dl>` : ''}
+    ${showItem ? `<div class="next"><span class="lbl">${showItem.lvl === 'overdue' || showItem.lvl === 'critical' ? 'Needs attention' : 'Next milestone'}</span>
+      <div class="row"><span title="${esc(showItem.name)}">${esc(showItem.name)}</span><span class="due c-${showItem.lvl}">${dueText(showItem.days)}</span></div></div>` : `<div class="next"><span class="lbl">Next milestone</span><div class="row"><span>None set</span></div></div>`}
+    <div class="bar" aria-hidden="true"><i class="b-done" style="width:${pct(c.done)}%"></i><i class="b-doing" style="width:${pct(c.doing)}%"></i></div>
+    <p class="counts num">${c.overdue ? `<span class="hot">${c.overdue} overdue</span>` : ''}<span>${c.todo + c.doing} open</span><span>${c.doing} in progress</span><span>${c.done}/${c.total} done</span></p>
+    <div class="tile-foot"><span class="avatar" title="${esc(p.pm)}">${esc(initials(p.pm))}</span><span>${esc(p.pm || 'No PM')}</span><span class="spacer"></span><span>${ago(p.updatedAt)}</span></div>
+  </article>`;
+}
+function renderBoard() {
+  const list = filtered().map((p) => [p, projectInfo(p)]);
+  list.sort(([pa, a], [pb, b]) => (pa.onHold - pb.onHold) || (LEVELS[b.level].rank - LEVELS[a.level].rank) || (b.scopeOpen - a.scopeOpen) || (a.soonest - b.soonest) || String(pa.jobNo).localeCompare(pb.jobNo));
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  ui.page = Math.min(ui.page, pages - 1);
+  const slice = list.slice(ui.page * PAGE_SIZE, ui.page * PAGE_SIZE + PAGE_SIZE);
+  if (!list.length) {
+    $('#main').innerHTML = `<div class="empty">${activeProjects().length ? 'No projects match this filter.' : '<h2>Your board is empty</h2><p>Add your first job and pin it to the board.</p><button class="btn primary" data-action="new-project">+ New project</button>'}</div>`;
+    return;
+  }
+  let html = `<div class="board">${slice.map(([p]) => tileHtml(p)).join('')}`;
+  if (pages === 1 && slice.length < PAGE_SIZE && ui.filter === 'all' && !ui.search && !document.body.classList.contains('wall')) html += `<button type="button" class="slot-empty" data-action="new-project">+ Pin a new project</button>`;
+  html += '</div>';
+  if (pages > 1) html += `<nav class="pager" aria-label="Board pages">${Array.from({ length: pages }, (_, k) => `<button class="btn small" data-action="page" data-n="${k}" aria-current="${k === ui.page}">Board ${k + 1}</button>`).join('')}</nav>`;
+  $('#main').innerHTML = html;
+}
+
+/* ---------- render: task rows ---------- */
+function taskRow(p, t, { showProject } = {}) {
+  const days = t.due ? daysUntil(t.due) : null;
+  const lvl = levelFor(t.due, t.status === 'done');
+  return `<li class="task st-${t.status} lvl-${lvl}">
+    <button type="button" class="st ${t.status}" data-action="cycle" data-pid="${p.id}" data-tid="${t.id}" title="Click to change status">${STATUS[t.status]}</button>
+    <div style="min-width:0">
+      <div class="t-title">${esc(t.title)}</div>
+      <div class="t-meta">
+        ${showProject ? `<button type="button" class="t-proj" data-action="open" data-id="${p.id}">${esc(p.jobNo)} ${esc(p.name)}</button>` : ''}
+        <input class="mini" list="teamList" value="${esc(t.assignee)}" placeholder="Assign to…" aria-label="Assigned to" data-edit="task" data-field="assignee" data-pid="${p.id}" data-tid="${t.id}">
+        <input class="mini num" type="date" value="${esc(t.due)}" aria-label="Due date" data-edit="task" data-field="due" data-pid="${p.id}" data-tid="${t.id}">
+        ${t.due && t.status !== 'done' ? `<span class="due c-${lvl}">${dueText(days)}</span>` : ''}
+      </div>
+    </div>
+    <div class="t-actions">
+      <button type="button" class="iconbtn" data-action="notify" data-pid="${p.id}" data-tid="${t.id}" title="${t.notifiedAt ? 'Emailed ' + ago(t.notifiedAt) + '. Send a reminder' : 'Email this task to the person'}" aria-label="Email the assignee">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></button>
+      <button type="button" class="iconbtn" data-action="del-task" data-pid="${p.id}" data-tid="${t.id}" title="Delete task" aria-label="Delete task">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+  </li>`;
+}
+
+/* ---------- render: tasks view ---------- */
+function renderTasksView() {
+  const rows = [];
+  activeProjects().forEach((p) => live(p.tasks).forEach((t) => rows.push({ p, t })));
+  const q = ui.search.trim().toLowerCase();
+  const people = [...new Set(rows.map((r) => r.t.assignee).filter(Boolean))].sort();
+  let list = rows.filter(({ p, t }) => (ui.tvShowDone || t.status !== 'done') && (!ui.tvPerson || t.assignee === ui.tvPerson)
+    && (!q || [t.title, t.assignee, p.jobNo, p.name, p.client].join(' ').toLowerCase().includes(q)));
+  list.sort((a, b) => (a.t.due || '9999').localeCompare(b.t.due || '9999'));
+  const groups = new Map();
+  const add = (k, r) => { if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); };
+  if (ui.tvGroup === 'person') {
+    list.forEach((r) => add(r.t.assignee || 'Unassigned', r));
+  } else {
+    const order = ['Overdue', 'Next 7 days', 'Next 30 days', 'Later', 'No due date', 'Done'];
+    order.forEach((k) => groups.set(k, []));
+    list.forEach((r) => {
+      const d = r.t.due ? daysUntil(r.t.due) : null;
+      add(r.t.status === 'done' ? 'Done' : d == null ? 'No due date' : d < 0 ? 'Overdue' : d <= 7 ? 'Next 7 days' : d <= 30 ? 'Next 30 days' : 'Later', r);
+    });
+  }
+  const body = [...groups].filter(([, rs]) => rs.length).map(([k, rs]) => `<div class="tv-group"><h3>${esc(k)} <small>${rs.length} task${rs.length === 1 ? '' : 's'}</small></h3><ul class="task-list">${rs.map(({ p, t }) => taskRow(p, t, { showProject: true })).join('')}</ul></div>`).join('');
+  $('#main').innerHTML = `<div class="tasks-view">
+    <div class="tv-controls">
+      <label for="tvGroup">Group by <select id="tvGroup" class="inp" style="width:auto" data-ui="tvGroup"><option value="due" ${ui.tvGroup === 'due' ? 'selected' : ''}>Due date</option><option value="person" ${ui.tvGroup === 'person' ? 'selected' : ''}>Person</option></select></label>
+      <label for="tvPerson">Person <select id="tvPerson" class="inp" style="width:auto" data-ui="tvPerson"><option value="">Everyone</option>${people.map((n) => `<option ${n === ui.tvPerson ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      <label class="check" for="tvDone"><input type="checkbox" id="tvDone" data-ui="tvShowDone" ${ui.tvShowDone ? 'checked' : ''}> Show done</label>
+      <span class="spacer"></span><span class="hint num">${list.filter((r) => r.t.status !== 'done').length} open tasks</span>
+    </div>
+    ${body || '<div class="empty" style="border:0">No tasks here. Open a project tile to add one.</div>'}
+  </div>`;
+}
+
+/* ---------- render: project dialog ---------- */
+function fieldInput(p, key, label, opts = {}) {
+  const v = p[key] ?? '';
+  const attrs = `id="f-${key}" data-edit="project" data-field="${key}" data-pid="${p.id}"`;
+  let ctl;
+  if (opts.type === 'select') ctl = `<select ${attrs}>${opts.options.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+  else if (opts.type === 'textarea') ctl = `<textarea ${attrs} rows="2">${esc(v)}</textarea>`;
+  else if (opts.unit) ctl = `<div class="unit"><input ${attrs} type="number" min="0" step="any" class="num" value="${esc(v)}"><em>${opts.unit}</em></div>`;
+  else ctl = `<input ${attrs} type="text" value="${esc(v)}" ${opts.list ? 'list="teamList"' : ''}>`;
+  return `<label class="field ${opts.full ? 'full' : ''}" for="f-${key}"><span>${label}</span>${ctl}</label>`;
+}
+function renderProject() {
+  const p = findProject(ui.openId);
+  const dlg = $('#projectDlg');
+  if (!p) { if (dlg.open) dlg.close(); return; }
+  const i = projectInfo(p);
+  const tasks = live(p.tasks).filter((t) => ui.showDone || t.status !== 'done')
+    .sort((a, b) => (a.status === 'done') - (b.status === 'done') || (a.due || '9999').localeCompare(b.due || '9999'));
+  const doneCount = live(p.tasks).filter((t) => t.status === 'done').length;
+  const ms = live(p.milestones).sort((a, b) => (a.date || '9999').localeCompare(b.date || '9999'));
+  const scope = live(p.scopeLog).sort((a, b) => b.at.localeCompare(a.at));
+  const updates = live(p.updates).sort((a, b) => b.at.localeCompare(a.at));
+  const keepScroll = $('.dlg-body', dlg)?.scrollTop || 0;
+  dlg.innerHTML = `<div class="dlg">
+    <div class="dlg-head">
+      <div class="ttl">
+        <div class="sub"><span class="job">${esc(p.jobNo || 'No job no.')}</span><span class="pill c-${p.onHold ? 'hold' : i.level}">${p.onHold ? 'On hold' : LEVELS[i.level].label}</span>${i.scopeOpen ? `<span class="pill c-scope">${i.scopeOpen} scope change${i.scopeOpen > 1 ? 's' : ''} to review</span>` : ''}<span>Updated ${ago(p.updatedAt)}</span></div>
+        <h2>${esc(p.name)}</h2>
+      </div>
+      <button class="btn icon" data-action="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="dlg-body">
+      <div class="cols">
+        <div>
+          <section class="card"><h3>Job details</h3><div class="pad form-grid">
+            ${fieldInput(p, 'jobNo', 'Job number')}${fieldInput(p, 'phase', 'Phase', { type: 'select', options: PHASES })}
+            ${fieldInput(p, 'name', 'Project name', { full: true })}
+            ${fieldInput(p, 'client', 'Client')}${fieldInput(p, 'site', 'Site')}
+            ${fieldInput(p, 'pm', 'Project manager', { list: true })}
+            <label class="check" for="f-onHold" style="align-self:end;padding-bottom:8px"><input type="checkbox" id="f-onHold" data-edit="project" data-field="onHold" data-pid="${p.id}" ${p.onHold ? 'checked' : ''}> Project on hold</label>
+          </div></section>
+
+          <section class="card"><h3>Key dates <span class="grow"></span><button class="btn small" data-action="add-ms" data-pid="${p.id}">+ Add date</button></h3>
+            <div>${ms.length ? ms.map((m) => {
+              const lvl = levelFor(m.date, m.done);
+              return `<div class="ms ${m.done ? 'done' : ''}">
+                <input type="checkbox" aria-label="Done" ${m.done ? 'checked' : ''} data-edit="ms" data-field="done" data-pid="${p.id}" data-mid="${m.id}">
+                <input type="text" value="${esc(m.name)}" placeholder="e.g. FAT, Delivery, Commissioning" aria-label="Milestone name" data-edit="ms" data-field="name" data-pid="${p.id}" data-mid="${m.id}">
+                <input type="date" class="mini num" value="${esc(m.date)}" aria-label="Date" data-edit="ms" data-field="date" data-pid="${p.id}" data-mid="${m.id}">
+                <span class="due c-${lvl}">${m.done ? 'Done' : dueText(daysUntil(m.date))}</span>
+                <button class="iconbtn" data-action="del-ms" data-pid="${p.id}" data-mid="${m.id}" aria-label="Remove date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+              </div>`;
+            }).join('') : '<p class="hint pad">Add FAT, delivery, commissioning and handover dates. The tile turns amber, then red, as they get close.</p>'}</div>
+          </section>
+
+          <section class="card"><h3>Scope <span class="grow"></span></h3><div class="pad form-grid">
+            ${SCOPE_FIELDS.map((f) => fieldInput(p, f.key, f.label, f.unit ? { unit: f.unit } : { type: 'textarea', full: true })).join('')}
+            <p class="hint full">Changing a scope value after it is first set is logged and flags the tile until someone reviews it.</p>
+          </div></section>
+        </div>
+
+        <div>
+          <section class="card"><h3>Tasks <span class="grow"></span><label class="check" style="font-family:var(--font-body);text-transform:none;letter-spacing:0;font-size:13px;font-weight:500" for="showDone"><input type="checkbox" id="showDone" data-ui="showDone" ${ui.showDone ? 'checked' : ''}> Show ${doneCount} done</label></h3>
+            <form class="addtask" data-form="task" data-pid="${p.id}" autocomplete="off">
+              <input class="inp" id="nt-title" name="title" placeholder="What needs doing?" aria-label="New task" required>
+              <div class="row">
+                <input class="inp" id="nt-who" name="assignee" list="teamList" placeholder="Person" aria-label="Assign to">
+                <input class="inp num" id="nt-due" name="due" type="date" aria-label="Due date">
+                <label class="check" for="nt-notify"><input type="checkbox" id="nt-notify" name="notify" checked> Email them</label>
+                <button class="btn primary">Add task</button>
+              </div>
+            </form>
+            <ul class="task-list">${tasks.map((t) => taskRow(p, t)).join('') || '<li class="hint pad">No open tasks.</li>'}</ul>
+          </section>
+
+          <section class="card"><h3>Updates</h3>
+            <form class="post" data-form="update" data-pid="${p.id}" autocomplete="off"><input class="inp" id="nu-text" name="text" placeholder="Quick update, e.g. client moved witness test to Thursday" aria-label="Post an update" required><button class="btn">Post</button></form>
+            <ul class="log">${updates.map((u) => `<li><span class="when">${stamp(u.at)} · ${esc(u.by || 'Someone')}</span>${esc(u.text)}</li>`).join('') || '<li class="hint">No updates yet.</li>'}</ul>
+          </section>
+
+          <section class="card"><h3>Scope changes <span class="grow"></span>${i.scopeOpen ? `<button class="btn small" data-action="ack-scope" data-pid="${p.id}">Mark reviewed</button>` : ''}</h3>
+            <form class="post" data-form="scope" data-pid="${p.id}" autocomplete="off"><input class="inp" id="ns-text" name="text" placeholder="Log a scope change, e.g. client added a second fuel transfer pump" aria-label="Log a scope change" required><button class="btn">Log</button></form>
+            <ul class="log">${scope.map((s) => `<li class="${s.ack ? '' : 'unack'}"><span class="when">${stamp(s.at)} · ${esc(s.by || 'Someone')}${s.ack ? ` · reviewed by ${esc(s.ackBy || 'someone')}` : ' · not reviewed'}</span>${s.field === 'note' ? esc(s.note) : `<span class="chg">${esc(s.label)}: <s>${esc(s.from)}</s> → ${esc(s.to)}</span>`}</li>`).join('') || '<li class="hint">No scope changes logged.</li>'}</ul>
+          </section>
+        </div>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button class="btn danger" data-action="del-project" data-pid="${p.id}">Delete</button>
+      <button class="btn" data-action="archive-project" data-pid="${p.id}">Archive (job closed)</button>
+      <span class="spacer"></span>
+      <button class="btn primary" data-action="close">Done</button>
+    </div>
+  </div>`;
+  $('.dlg-body', dlg).scrollTop = keepScroll;
+  if (!dlg.open) dlg.showModal();
+}
+
+/* ---------- render: alerts popup ---------- */
+function renderAlerts() {
+  const items = attentionItems();
+  const dlg = $('#alertsDlg');
+  dlg.innerHTML = `<div class="dlg">
+    <div class="dlg-head"><div class="ttl"><h2>${items.length ? `${items.length} item${items.length > 1 ? 's' : ''} need attention` : 'Nothing critical'}</h2>
+      <div class="sub">Overdue, or due within ${data.settings.critDays} days</div></div>
+      <button class="btn icon" data-action="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="dlg-body" style="padding:0">
+      ${items.length ? `<ul class="alert-list">${items.map((i) => `<li><button data-action="open" data-id="${i.p.id}">
+        <span class="pill c-${i.lvl}">${LEVELS[i.lvl].label}</span>
+        <span style="min-width:0"><span class="what">${esc(i.name)}</span><br><span class="where">${esc(i.p.jobNo)} ${esc(i.p.name)} · ${i.kind}${i.who ? ' · ' + esc(i.who) : ''}</span></span>
+        <span class="due c-${i.lvl}">${dueText(i.days)}</span></button></li>`).join('')}</ul>` : '<p class="pad">All key dates and tasks are more than ' + data.settings.critDays + ' days away.</p>'}
+    </div>
+    <div class="dlg-foot"><button class="btn" data-action="snooze">Don't show again today</button><button class="btn primary" data-action="close">OK</button></div>
+  </div>`;
+  if (!dlg.open) dlg.showModal();
+}
+
+/* ---------- render: settings ---------- */
+function renderSettings() {
+  const s = data.settings;
+  const dlg = $('#settingsDlg');
+  const canFile = 'showOpenFilePicker' in window;
+  const archived = data.projects.filter((p) => p.archived && !p.deleted);
+  dlg.innerHTML = `<div class="dlg">
+    <div class="dlg-head"><div class="ttl"><h2>Settings</h2></div><button class="btn icon" data-action="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="dlg-body">
+      <div class="settings-sec">
+        <h3>You</h3>
+        <label class="field" for="s-me"><span>Your name (used on updates and emails)</span><input id="s-me" list="teamList" value="${esc(me())}" data-edit="me"></label>
+      </div>
+      <div class="settings-sec">
+        <h3>Shared data file</h3>
+        <p class="hint">${store.handle ? `Connected to <strong>${esc(store.handle.name)}</strong>. Changes save automatically and other people's changes appear within 15 seconds.` : 'Right now the board is saved in this browser only. Put a data file on the network drive or a synced SharePoint folder so the whole team sees one board.'}</p>
+        ${canFile ? `<div class="btnrow">
+          <button class="btn primary" data-action="connect-new">Create shared file…</button>
+          <button class="btn" data-action="connect-open">Open existing file…</button>
+          ${store.handle ? '<button class="btn danger" data-action="disconnect">Disconnect</button>' : ''}
+        </div>` : '<p class="hint"><strong>This browser cannot write to shared files.</strong> Open the page in Microsoft Edge or Google Chrome to use a shared file.</p>'}
+        <div class="btnrow"><button class="btn small" data-action="export">Download a backup (.json)</button><button class="btn small" data-action="import">Import from backup…</button></div>
+      </div>
+      <div class="settings-sec">
+        <h3>Warnings</h3>
+        <div class="form-grid">
+          <label class="field" for="s-warn"><span>Amber when due within</span><div class="unit"><input id="s-warn" type="number" min="1" class="num" value="${s.warnDays}" data-edit="setting" data-field="warnDays"><em>days</em></div></label>
+          <label class="field" for="s-crit"><span>Red / popup when due within</span><div class="unit"><input id="s-crit" type="number" min="0" class="num" value="${s.critDays}" data-edit="setting" data-field="critDays"><em>days</em></div></label>
+          <label class="field full" for="s-title"><span>Board title</span><input id="s-title" value="${esc(s.title)}" data-edit="setting" data-field="title"></label>
+        </div>
+      </div>
+      <div class="settings-sec">
+        <h3>Team</h3>
+        <p class="hint">People you can assign tasks to. The email address is where task notices go.</p>
+        <div>${s.team.map((t, idx) => `<div class="team-row">
+          <input class="inp" aria-label="Name" value="${esc(t.name)}" data-edit="person" data-field="name" data-idx="${idx}">
+          <input class="inp" aria-label="Email" type="email" value="${esc(t.email)}" placeholder="name@company.com" data-edit="person" data-field="email" data-idx="${idx}">
+          <button class="iconbtn" data-action="del-person" data-idx="${idx}" aria-label="Remove ${esc(t.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>`).join('')}</div>
+        <div><button class="btn small" data-action="add-person">+ Add person</button></div>
+      </div>
+      <div class="settings-sec">
+        <h3>Task emails</h3>
+        <label class="check" for="s-em1"><input type="radio" id="s-em1" name="emailMode" value="outlook" data-edit="setting" data-field="emailMode" ${s.emailMode !== 'flow' ? 'checked' : ''}> Draft the email in Outlook (you press Send)</label>
+        <label class="check" for="s-em2"><input type="radio" id="s-em2" name="emailMode" value="flow" data-edit="setting" data-field="emailMode" ${s.emailMode === 'flow' ? 'checked' : ''}> Send automatically through a Power Automate flow</label>
+        <label class="field" for="s-flow"><span>Power Automate flow URL</span><input id="s-flow" value="${esc(s.flowUrl)}" placeholder="https://prod-00.australiaeast.logic.azure.com/workflows/…" data-edit="setting" data-field="flowUrl"></label>
+        <p class="hint">See the README for the five-step flow setup.</p>
+      </div>
+      ${archived.length ? `<div class="settings-sec"><h3>Archived jobs</h3>${archived.map((p) => `<div class="btnrow" style="align-items:center"><span style="flex:1;min-width:0">${esc(p.jobNo)} ${esc(p.name)}</span><button class="btn small" data-action="restore" data-pid="${p.id}">Put back on board</button></div>`).join('')}</div>` : ''}
+    </div>
+    <div class="dlg-foot"><button class="btn primary" data-action="close">Done</button></div>
+  </div>`;
+  if (!dlg.open) dlg.showModal();
+}
+
+function renderMain() { ui.view === 'tasks' ? renderTasksView() : renderBoard(); }
+function renderAll({ fromRemote } = {}) {
+  renderHeader();
+  renderBanners();
+  const active = document.activeElement;
+  const typing = active && /INPUT|TEXTAREA|SELECT/.test(active.tagName);
+  if (!(fromRemote && typing && $('#main').contains(active))) renderMain();
+  if ($('#projectDlg').open && !(fromRemote && typing && $('#projectDlg').contains(active))) renderProject();
+}
+
+/* ---------- actions ---------- */
+function openProject(id) { ui.openId = id; ui.showDone = false; renderProject(); }
+
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const a = el.dataset.action;
+  const p = el.dataset.pid ? findProject(el.dataset.pid) : null;
+  const t = p && el.dataset.tid ? p.tasks.find((x) => x.id === el.dataset.tid) : null;
+  switch (a) {
+    case 'open':
+      if ($('#alertsDlg').open) $('#alertsDlg').close();
+      openProject(el.dataset.id); break;
+    case 'close': el.closest('dialog').close(); break;
+    case 'view': ui.view = el.dataset.v; renderHeader(); renderMain(); break;
+    case 'filter': ui.filter = ui.filter === el.dataset.f ? 'all' : el.dataset.f; ui.page = 0; if (ui.view !== 'board') ui.view = 'board'; renderHeader(); renderMain(); break;
+    case 'page': ui.page = Number(el.dataset.n); renderMain(); break;
+    case 'alerts': renderAlerts(); break;
+    case 'snooze': lsSet(LS_SNOOZE, isoDate(new Date())); el.closest('dialog').close(); break;
+    case 'settings': renderSettings(); break;
+    case 'wall': toggleWall(); break;
+    case 'new-project': {
+      const np = newProject();
+      data.projects.push(np); save(); ui.filter = 'all'; ui.search = ''; $('#search').value = '';
+      renderAll(); openProject(np.id);
+      setTimeout(() => { const f = $('#f-name'); if (f) { f.focus(); f.select(); } }, 50);
+      break;
+    }
+    case 'cycle':
+      t.status = NEXT_STATUS[t.status]; t.updatedAt = nowIso(); touch(p); save();
+      toast(`${t.title}: ${STATUS[t.status]}`);
+      renderAll(); break;
+    case 'notify': notifyTask(p, t, t.due && daysUntil(t.due) < 0 ? 'chase' : 'assign'); break;
+    case 'del-task':
+      if (await askConfirm(`Delete the task "${t.title}"?`, 'Delete task')) { t.deleted = true; t.updatedAt = nowIso(); touch(p); save(); renderAll(); }
+      break;
+    case 'add-ms': {
+      const m = { id: uid(), name: '', date: '', done: false, updatedAt: nowIso() };
+      p.milestones.push(m); touch(p); save(); renderProject();
+      setTimeout(() => $(`[data-mid="${m.id}"][data-field="name"]`)?.focus(), 30);
+      break;
+    }
+    case 'del-ms': { const m = p.milestones.find((x) => x.id === el.dataset.mid); m.deleted = true; m.updatedAt = nowIso(); touch(p); save(); renderAll(); break; }
+    case 'ack-scope':
+      p.scopeLog.forEach((s) => { if (!s.ack) { s.ack = true; s.ackBy = me(); s.updatedAt = nowIso(); } });
+      touch(p); save(); toast('Scope changes marked as reviewed.'); renderAll(); break;
+    case 'del-project':
+      if (await askConfirm(`Delete ${p.jobNo} ${p.name} and all its tasks? This cannot be undone. Use Archive for finished jobs.`, 'Delete project')) {
+        p.deleted = true; touch(p); save(); $('#projectDlg').close(); renderAll();
+      }
+      break;
+    case 'archive-project': p.archived = true; touch(p); save(); $('#projectDlg').close(); renderAll(); toast(`${p.jobNo} archived. Restore it from Settings.`); break;
+    case 'restore': p.archived = false; touch(p); save(); renderSettings(); renderAll(); break;
+    case 'add-person': data.settings.team.push({ name: '', email: '' }); data.settings.updatedAt = nowIso(); save(); renderSettings(); setTimeout(() => { const rows = document.querySelectorAll('.team-row'); rows[rows.length - 1]?.querySelector('input')?.focus(); }, 30); break;
+    case 'del-person': data.settings.team.splice(Number(el.dataset.idx), 1); data.settings.updatedAt = nowIso(); save(); renderSettings(); renderHeader(); break;
+    case 'connect-new': pickFile('new'); break;
+    case 'connect-open': pickFile('open'); break;
+    case 'reconnect': try { const h = await idbGet('handle'); if (h) await connectHandle(h, 'open'); } catch { toast('Could not reconnect. Open the file again from Settings.', true); } break;
+    case 'disconnect': store.handle = null; store.error = ''; try { await idbSet('handle', undefined); } catch { /* ignore */ } renderSettings(); renderAll(); break;
+    case 'export': {
+      const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `project-board-backup-${isoDate(new Date())}.json`; link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 2000); break;
+    }
+    case 'import': $('#importFile').click(); break;
+    case 'clear-sample':
+      if (await askConfirm('Remove the example projects and start with an empty board? Your team list is kept.', 'Start my board')) {
+        data.projects = []; data.sample = false; data.settings.updatedAt = nowIso(); save(); renderAll();
+      }
+      break;
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.classList?.contains('tile')) { e.preventDefault(); openProject(e.target.dataset.id); }
+  if (e.key === 'Escape' && document.body.classList.contains('wall')) toggleWall();
+});
+
+/* Inline edits save on change. */
+document.addEventListener('change', (e) => {
+  const el = e.target;
+  if (el.dataset.ui) {
+    ui[el.dataset.ui] = el.type === 'checkbox' ? el.checked : el.value;
+    el.dataset.ui === 'showDone' ? renderProject() : renderMain();
+    return;
+  }
+  const kind = el.dataset.edit;
+  if (!kind) return;
+  const val = el.type === 'checkbox' ? el.checked : el.value.trim();
+  if (kind === 'me') { lsSet(LS_ME, val); return; }
+  if (kind === 'setting') {
+    const f = el.dataset.field;
+    data.settings[f] = (f === 'warnDays' || f === 'critDays') ? Math.max(0, Number(val) || 0) : val;
+    data.settings.updatedAt = nowIso(); save(); renderAll(); return;
+  }
+  if (kind === 'person') { data.settings.team[Number(el.dataset.idx)][el.dataset.field] = val; data.settings.updatedAt = nowIso(); save(); renderHeader(); return; }
+  const p = findProject(el.dataset.pid);
+  if (!p) return;
+  if (kind === 'project') {
+    const f = el.dataset.field;
+    const old = p[f] ?? '';
+    if (String(old) === String(val)) return;
+    const sf = SCOPE_FIELDS.find((x) => x.key === f);
+    if (sf && String(old) !== '') {
+      const show = (v) => v === '' ? '(blank)' : sf.unit && sf.unit !== 'qty' ? `${fmtNum(v)} ${sf.unit}` : sf.unit === 'qty' ? fmtNum(v) : v;
+      p.scopeLog.push({ id: uid(), at: nowIso(), updatedAt: nowIso(), by: me(), field: f, label: sf.label, from: show(old), to: show(val), ack: false });
+      toast(`Scope change logged: ${sf.label}. The tile is flagged until it is reviewed.`);
+    }
+    p[f] = val;
+  } else if (kind === 'ms') {
+    const m = p.milestones.find((x) => x.id === el.dataset.mid);
+    m[el.dataset.field] = val; m.updatedAt = nowIso();
+  } else if (kind === 'task') {
+    const t = p.tasks.find((x) => x.id === el.dataset.tid);
+    const reassigned = el.dataset.field === 'assignee' && val && val !== t.assignee;
+    t[el.dataset.field] = val; t.updatedAt = nowIso();
+    if (reassigned) { touch(p); save(); notifyTask(p, t, 'assign'); }
+  }
+  touch(p); save(); renderAll();
+});
+
+document.addEventListener('submit', (e) => {
+  const form = e.target;
+  if (!form.dataset.form) return;
+  e.preventDefault();
+  const p = findProject(form.dataset.pid);
+  const fd = new FormData(form);
+  const text = String(fd.get('text') || fd.get('title') || '').trim();
+  if (!text) return;
+  if (form.dataset.form === 'task') {
+    const t = { id: uid(), title: text, assignee: String(fd.get('assignee') || '').trim(), due: fd.get('due') || '', status: 'todo', createdBy: me(), createdAt: nowIso(), updatedAt: nowIso() };
+    p.tasks.push(t); touch(p); save();
+    if (fd.get('notify') && t.assignee) notifyTask(p, t, 'assign');
+    renderAll();
+    setTimeout(() => $('#nt-title')?.focus(), 30);
+  } else if (form.dataset.form === 'update') {
+    p.updates.push({ id: uid(), at: nowIso(), updatedAt: nowIso(), by: me(), text }); touch(p); save(); renderAll();
+  } else if (form.dataset.form === 'scope') {
+    p.scopeLog.push({ id: uid(), at: nowIso(), updatedAt: nowIso(), by: me(), field: 'note', note: text, ack: false }); touch(p); save(); renderAll();
+    toast('Scope change logged. The tile is flagged until it is reviewed.');
+  }
+});
+
+$('#search').addEventListener('input', (e) => { ui.search = e.target.value; ui.page = 0; renderMain(); });
+$('#importFile').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  try {
+    const incoming = normalize(JSON.parse(await f.text()));
+    data = data.sample ? incoming : mergeData(data, incoming);
+    save(); renderAll(); $('#settingsDlg').open && renderSettings();
+    toast(`Imported ${incoming.projects.length} projects.`);
+  } catch { toast('That file is not a board backup.', true); }
+});
+
+function toggleWall() {
+  const on = document.body.classList.toggle('wall');
+  clearInterval(ui.wallTimer);
+  ui.view = 'board'; ui.filter = 'all';
+  if (on) {
+    document.documentElement.requestFullscreen?.().catch(() => {});
+    ui.wallTimer = setInterval(() => {
+      const pages = Math.ceil(filtered().length / PAGE_SIZE);
+      ui.page = pages > 1 ? (ui.page + 1) % pages : 0;
+      renderAll();
+    }, 30000);
+  } else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+  renderAll();
+}
+
+/* ---------- example data ---------- */
+function sampleData() {
+  const team = [
+    ['Sam Taylor', 'sam.taylor@example.com'], ['Priya Nair', 'priya.nair@example.com'], ['Alex Chen', 'alex.chen@example.com'],
+    ['Jordan Reid', 'jordan.reid@example.com'], ['Chris Walsh', 'chris.walsh@example.com'], ['Morgan Lee', 'morgan.lee@example.com'],
+  ].map(([name, email]) => ({ name, email }));
+  const back = (days) => new Date(Date.now() - days * 86400000).toISOString();
+  const P = (jobNo, name, client, site, pm, phase, scope, ms, tasks, updates = [], scopeLog = [], extra = {}) => ({
+    ...newProject(), jobNo, name, client, site, pm, phase, ...scope, ...extra,
+    updatedAt: back(updates[0] ? updates[0][0] : 3),
+    milestones: ms.map(([n, d, done]) => ({ id: uid(), name: n, date: addDays(d), done: !!done, updatedAt: back(5) })),
+    tasks: tasks.map(([title, assignee, d, status]) => ({ id: uid(), title, assignee, due: addDays(d), status, createdBy: pm, createdAt: back(10), updatedAt: back(2) })),
+    updates: updates.map(([d, by, text]) => ({ id: uid(), at: back(d), updatedAt: back(d), by, text })),
+    scopeLog: scopeLog.map(([d, by, label, from, to]) => ({ id: uid(), at: back(d), updatedAt: back(d), by, field: 'x', label, from, to, ack: false })),
+  });
+  const projects = [
+    P('J-2417', 'Karratha Hub Power Station', 'Northline Mining', 'Karratha', 'Sam Taylor', 'Commissioning', { genQty: 4, genKva: 1500, fuelL: 2000, bessKwh: 1000, pvKwp: 1200 },
+      [['FAT', -40, 1], ['Delivery to site', -21, 1], ['Commissioning complete', -2], ['Handover', 12]],
+      [['Close out punch list items 1–14', 'Jordan Reid', -1, 'doing'], ['Submit commissioning report', 'Sam Taylor', 3, 'todo'], ['Load bank test sign-off', 'Alex Chen', -5, 'done']],
+      [[0.6, 'Sam Taylor', 'Gen 3 governor tuning still outstanding. Client witness moved to Thursday.']]),
+    P('J-2422', 'Exmouth Hybrid Upgrade', 'Gascoyne Utilities', 'Exmouth', 'Priya Nair', 'Install', { genQty: 3, genKva: 800, fuelL: 1500, bessKwh: 500, pvKwp: 750 },
+      [['Site install complete', 4], ['Commissioning', 18]],
+      [['Confirm crane booking', 'Chris Walsh', 2, 'todo'], ['PV inverter firmware update', 'Alex Chen', 5, 'doing'], ['Cable schedule rev C', 'Jordan Reid', -3, 'done']],
+      [[1, 'Priya Nair', 'Switchroom set on plinth. Waiting on crane for gen 2.']]),
+    P('J-2430', 'Camp 3 Prime Power', 'Redstone Resources', 'Pilbara', 'Sam Taylor', 'Build / FAT', { genQty: 3, genKva: 500, fuelL: 3000 },
+      [['FAT', 11], ['Delivery to site', 25]],
+      [['Issue FAT procedure', 'Priya Nair', 6, 'doing'], ['Order spare AVRs', 'Morgan Lee', 9, 'todo']]),
+    P('J-2435', 'Port Hedland Black Start', 'Pilbara Port Services', 'Port Hedland', 'Priya Nair', 'Design', { genQty: 2, genKva: 2000, fuelL: 5000 },
+      [['Functional description issued', 20], ['Design review', 35]],
+      [['Revise SLD for second generator', 'Jordan Reid', 8, 'todo'], ['Update fuel autonomy calc', 'Chris Walsh', 10, 'todo']],
+      [[2, 'Priya Nair', 'Client confirmed N+1 redundancy at the kick-off meeting.']],
+      [[3, 'Sam Taylor', 'Generators', '1', '2'], [3, 'Sam Taylor', 'Sub-base fuel tank', '3,000 L', '5,000 L']]),
+    P('J-2441', 'Carnarvon Load Bank Test', 'Gascoyne Utilities', 'Carnarvon', 'Chris Walsh', 'Commissioning', { genQty: 1, genKva: 1000 },
+      [['Test day', 6]],
+      [['Book load bank hire', 'Morgan Lee', 1, 'doing'], ['Prepare test sheets', 'Chris Walsh', 4, 'todo']]),
+    P('J-2448', 'Data Centre Standby', 'Westgate Data', 'Perth', 'Alex Chen', 'Tender', { genQty: 6, genKva: 2500, fuelL: 1000 },
+      [['Tender submission', 30]],
+      [['Clarify fuel autonomy requirement', 'Alex Chen', 15, 'todo']],
+      [[6, 'Alex Chen', 'Client paused the tender pending board approval.']], [], { onHold: true }),
+    P('J-2452', 'Tom Price Microgrid Controls', 'Northline Mining', 'Tom Price', 'Sam Taylor', 'Procurement', { genQty: 5, genKva: 1250, fuelL: 2500, bessKwh: 2000, pvKwp: 3000 },
+      [['Controller order placed', 9], ['FAT', 60]],
+      [['Approve PLC BOM', 'Sam Taylor', 3, 'todo'], ['Request supplier lead times', 'Morgan Lee', -1, 'todo']]),
+    P('J-2455', 'Newman Gen Replacement', 'Redstone Resources', 'Newman', 'Jordan Reid', 'Design', { genQty: 2, genKva: 1500, fuelL: 2000 },
+      [['Functional description issued', 28], ['Design freeze', 45]],
+      [['Site survey report', 'Jordan Reid', 16, 'doing']]),
+    P('J-2460', 'Broome Hospital Standby', 'Kimberley Health', 'Broome', 'Priya Nair', 'Delivery', { genQty: 2, genKva: 750, fuelL: 1200 },
+      [['Delivery to site', 13], ['Install complete', 30]],
+      [['Oversize transport permits', 'Chris Walsh', 12, 'doing'], ['ATS interface drawings', 'Alex Chen', 20, 'todo']]),
+    P('J-2463', 'Onslow Solar-Diesel Study', 'Ashburton Shire', 'Onslow', 'Alex Chen', 'Tender', { genQty: 2, genKva: 400, bessKwh: 250, pvKwp: 500 },
+      [['Study report', 50]],
+      [['Load profile analysis', 'Alex Chen', 21, 'doing']]),
+  ];
+  const d = defaults();
+  d.sample = true;
+  d.settings.title = 'Project Board';
+  d.settings.team = team;
+  d.projects = projects;
+  return d;
+}
+
+/* ---------- start ---------- */
+async function init() {
+  let cached = null;
+  try { cached = JSON.parse(lsGet(LS_DATA) || 'null'); } catch { cached = null; }
+  data = normalize(cached || sampleData());
+  renderAll();
+  try {
+    const h = await idbGet('handle');
+    if (h && (await h.queryPermission({ mode: 'readwrite' })) === 'granted') {
+      store.handle = h;
+      const f = await h.getFile();
+      if (f.size) data = data.sample ? normalize(JSON.parse(await f.text())) : mergeData(data, JSON.parse(await f.text()));
+      store.lastModified = f.lastModified;
+      lsSet(LS_DATA, JSON.stringify(data));
+      renderAll();
+    }
+  } catch { /* no saved file or not reachable: stay on the browser copy */ }
+  if (attentionItems().length && lsGet(LS_SNOOZE) !== isoDate(new Date())) renderAlerts();
+  setInterval(pollShared, 15000);
+  let lastDay = isoDate(new Date());
+  setInterval(() => {
+    const today = isoDate(new Date());
+    renderHeader();
+    if (!$('#projectDlg').open) renderMain();
+    if (today !== lastDay) { lastDay = today; if (attentionItems().length) renderAlerts(); }
+  }, 60000);
+}
+init();
+</script>
+</body>
+</html>
