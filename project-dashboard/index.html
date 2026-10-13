@@ -162,9 +162,9 @@ main { padding-block: 18px 28px; padding-inline: 20px; }
 .bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-2); }
 .bar i { display: block; height: 100%; }
 .bar .b-done { background: var(--ok); } .bar .b-doing { background: var(--accent); } .bar .b-over { background: var(--over); }
-.counts { margin: 0; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.counts { margin-top: auto !important; margin: 0; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
 .counts .hot { color: var(--over); font-weight: 600; }
-.tile-foot { margin-top: auto !important; display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.tile-foot { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
 .avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--surface-2); border: 1px solid var(--line); font-size: 10.5px; font-weight: 700; color: var(--ink); }
 .ribbon {
   position: absolute; top: 10px; right: -6px; background: var(--scope); color: #fff; font-size: 11px; font-weight: 700;
@@ -257,12 +257,13 @@ section.card > h3 .btn { text-transform: none; letter-spacing: 0; font-family: v
 .check { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; }
 .hint { font-size: 12.5px; color: var(--muted); margin: 0; }
 
-.ms { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--line); }
-.ms:first-child { border-top: 0; }
-.ms input[type="text"] { border: 1px solid transparent; background: none; padding: 4px 6px; border-radius: 6px; width: 100%; font-weight: 600; }
-.ms input[type="text"]:hover, .ms input[type="text"]:focus { border-color: var(--line); background: var(--surface); }
-.ms.done input[type="text"] { text-decoration: line-through; color: var(--muted); font-weight: 500; }
-@media (max-width: 520px) { .ms { grid-template-columns: auto minmax(0, 1fr) auto; } .ms .due { grid-column: 2; } }
+.lead { font-size: 12.5px; color: var(--muted); white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.lead input { width: 52px; padding: 3px 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+.ms { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "chk name del" ". meta meta"; gap: 2px 8px; align-items: center; padding: 7px 14px; border-top: 1px solid var(--line); }
+.ms > input[type="checkbox"] { grid-area: chk; }
+.ms > input[type="text"] { grid-area: name; }
+.ms > .iconbtn { grid-area: del; }
+.ms .ms-meta { grid-area: meta; display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; }
 
 .addtask { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); padding: 12px 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 5%, var(--surface)); }
 .addtask .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
@@ -436,6 +437,7 @@ function ago(iso) {
 function stamp(iso) { const d = new Date(iso); return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }) + ' ' + d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }); }
 function initials(name) { return (name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join(''); }
 
+/* Tasks use the board-wide thresholds in Settings. */
 function levelFor(dateStr, done) {
   if (done || !dateStr) return 'none';
   const d = daysUntil(dateStr), s = data.settings;
@@ -444,10 +446,22 @@ function levelFor(dateStr, done) {
   if (d <= s.warnDays) return 'soon';
   return 'ok';
 }
+/* Key dates each carry their own lead time: amber from "warn X days before",
+   red for the last 20% of that time, pulsing red once overdue. */
+const leadOf = (m) => Math.max(1, Number(m.leadDays) || data.settings.defaultLead || 14);
+const redZone = (lead) => Math.max(1, Math.ceil(lead * 0.2));
+function msLevel(m) {
+  if (m.done || !m.date) return 'none';
+  const d = daysUntil(m.date), lead = leadOf(m);
+  if (d < 0) return 'overdue';
+  if (d <= redZone(lead)) return 'critical';
+  if (d <= lead) return 'soon';
+  return 'ok';
+}
 
 /* ---------- data model ---------- */
 function defaults() {
-  return { version: 1, sample: false, savedAt: '', settings: { title: 'Project Board', warnDays: 14, critDays: 7, team: [], emailMode: 'outlook', flowUrl: '', updatedAt: '' }, projects: [] };
+  return { version: 1, sample: false, savedAt: '', settings: { title: 'Project Board', warnDays: 14, critDays: 7, defaultLead: 14, team: [], emailMode: 'outlook', flowUrl: '', updatedAt: '' }, projects: [] };
 }
 function normalize(d) {
   const base = defaults();
@@ -471,7 +485,7 @@ function touch(p) { p.updatedAt = nowIso(); }
 
 function projectInfo(p) {
   const items = [];
-  live(p.milestones).forEach((m) => { if (!m.done && m.date) items.push({ kind: 'Milestone', name: m.name || 'Milestone', date: m.date, days: daysUntil(m.date), lvl: levelFor(m.date, false), ref: m }); });
+  live(p.milestones).forEach((m) => { if (!m.done && m.date) items.push({ kind: 'Milestone', name: m.name || 'Milestone', date: m.date, days: daysUntil(m.date), lvl: msLevel(m), ref: m }); });
   live(p.tasks).forEach((t) => { if (t.status !== 'done' && t.due) items.push({ kind: 'Task', name: t.title, who: t.assignee, date: t.due, days: daysUntil(t.due), lvl: levelFor(t.due, false), ref: t }); });
   items.sort((a, b) => a.days - b.days);
   let level = 'none';
@@ -704,7 +718,7 @@ function renderSync() {
 }
 async function renderBanners() {
   let html = '';
-  if (data.sample) html += `<div class="banner"><strong>These are example projects.</strong> Try clicking a tile, ticking a task or changing a generator size. <span class="spacer"></span><button class="btn small" data-action="clear-sample">Clear examples and start my board</button></div>`;
+  if (data.sample) html += `<div class="banner"><strong>These are example projects.</strong> Try clicking a tile, changing a task's status or changing a generator size. <span class="spacer"></span><button class="btn small" data-action="clear-sample">Clear examples and start my board</button></div>`;
   if (!store.handle) {
     let h = null; try { h = await idbGet('handle'); } catch { /* no IndexedDB */ }
     if (h) html += `<div class="banner warn">The board was last connected to <strong>${esc(h.name)}</strong>. Reconnect to load your team's latest changes. <span class="spacer"></span><button class="btn small primary" data-action="reconnect">Reconnect</button></div>`;
@@ -718,26 +732,21 @@ function tileHtml(p) {
   const i = projectInfo(p);
   const lvl = p.onHold ? 'none' : i.level;
   const gens = p.genQty ? `${fmtNum(p.genQty)} × ${p.genKva ? fmtNum(p.genKva) + ' kVA' : '?'}` : '';
-  const specs = specCell('Gensets', gens, !p.fuelL) + specCell('Sub-base tank', p.fuelL ? fmtNum(p.fuelL) + ' L' : '') +
-    specCell('BESS', p.bessKwh ? fmtNum(p.bessKwh) + ' kWh' : '') + specCell('Solar PV', p.pvKwp ? fmtNum(p.pvKwp) + ' kWp' : '');
+  const specs = specCell('Gensets', gens) + specCell('Sub-base tank', p.fuelL ? fmtNum(p.fuelL) + ' L' : '');
   const first = i.items[0];
   const nextMs = i.nextMs;
-  const showItem = first && (first.lvl === 'overdue' || first.lvl === 'critical') ? first : (nextMs ? { kind: 'Milestone', name: nextMs.name, date: nextMs.date, days: daysUntil(nextMs.date), lvl: levelFor(nextMs.date) } : first);
-  const c = i.counts;
-  const pct = (n) => c.total ? (n / c.total * 100).toFixed(1) : 0;
+  const showItem = first && (first.lvl === 'overdue' || first.lvl === 'critical') ? first : (nextMs ? { name: nextMs.name, days: daysUntil(nextMs.date), lvl: msLevel(nextMs) } : first);
+  const open = i.counts.todo + i.counts.doing;
   const statusLabel = p.onHold ? 'On hold' : LEVELS[i.level].label;
   return `<article class="tile lvl-${lvl} ${p.onHold ? 'hold' : ''} ${i.scopeOpen ? 'has-ribbon' : ''}" data-action="open" data-id="${p.id}" tabindex="0" role="button" aria-label="${esc(p.jobNo + ' ' + p.name + ', ' + statusLabel)}">
     <span class="magnet" aria-hidden="true"></span>
     ${i.scopeOpen ? `<span class="ribbon">Scope change</span>` : ''}
     <div class="tile-head"><span class="job">${esc(p.jobNo || 'No job no.')}</span>${i.scopeOpen ? '' : `<span class="pill c-${p.onHold ? 'hold' : i.level}">${statusLabel}</span>`}</div>
-    <div><span class="phase">${esc(p.phase)}</span><h3>${esc(p.name)}</h3></div>
-    <p class="client">${esc([p.client, p.site].filter(Boolean).join(' · ') || 'Client and site not set')}</p>
+    <h3>${esc(p.name)}</h3>
     ${specs ? `<dl class="specs">${specs}</dl>` : ''}
-    ${showItem ? `<div class="next"><span class="lbl">${showItem.lvl === 'overdue' || showItem.lvl === 'critical' ? 'Needs attention' : 'Next milestone'}</span>
-      <div class="row"><span title="${esc(showItem.name)}">${esc(showItem.name)}</span><span class="due c-${showItem.lvl}">${dueText(showItem.days)}</span></div></div>` : `<div class="next"><span class="lbl">Next milestone</span><div class="row"><span>None set</span></div></div>`}
-    <div class="bar" aria-hidden="true"><i class="b-done" style="width:${pct(c.done)}%"></i><i class="b-doing" style="width:${pct(c.doing)}%"></i></div>
-    <p class="counts num">${c.overdue ? `<span class="hot">${c.overdue} overdue</span>` : ''}<span>${c.todo + c.doing} open</span><span>${c.doing} in progress</span><span>${c.done}/${c.total} done</span></p>
-    <div class="tile-foot"><span class="avatar" title="${esc(p.pm)}">${esc(initials(p.pm))}</span><span>${esc(p.pm || 'No PM')}</span><span class="spacer"></span><span>${ago(p.updatedAt)}</span></div>
+    <div class="next"><span class="lbl">${showItem && (showItem.lvl === 'overdue' || showItem.lvl === 'critical') ? 'Needs attention' : 'Next critical date'}</span>
+      <div class="row">${showItem ? `<span title="${esc(showItem.name)}">${esc(showItem.name)}</span><span class="due c-${showItem.lvl}">${dueText(showItem.days)}</span>` : '<span>None set</span>'}</div></div>
+    <p class="counts num"><span>${open} open task${open === 1 ? '' : 's'}</span>${i.counts.overdue ? `<span class="hot">${i.counts.overdue} overdue</span>` : ''}</p>
   </article>`;
 }
 function renderBoard() {
@@ -858,12 +867,13 @@ function renderProject() {
 
           <section class="card"><h3>Key dates <span class="grow"></span><button class="btn small" data-action="add-ms" data-pid="${p.id}">+ Add date</button></h3>
             <div>${ms.length ? ms.map((m) => {
-              const lvl = levelFor(m.date, m.done);
+              const lvl = msLevel(m);
               return `<div class="ms ${m.done ? 'done' : ''}">
                 <input type="checkbox" aria-label="Done" ${m.done ? 'checked' : ''} data-edit="ms" data-field="done" data-pid="${p.id}" data-mid="${m.id}">
                 <input type="text" value="${esc(m.name)}" placeholder="e.g. FAT, Delivery, Commissioning" aria-label="Milestone name" data-edit="ms" data-field="name" data-pid="${p.id}" data-mid="${m.id}">
-                <input type="date" class="mini num" value="${esc(m.date)}" aria-label="Date" data-edit="ms" data-field="date" data-pid="${p.id}" data-mid="${m.id}">
-                <span class="due c-${lvl}">${m.done ? 'Done' : dueText(daysUntil(m.date))}</span>
+                <div class="ms-meta"><input type="date" class="mini num" value="${esc(m.date)}" aria-label="Date" data-edit="ms" data-field="date" data-pid="${p.id}" data-mid="${m.id}">
+                <label class="lead" title="Turns amber this many days before the date, red for the last ${redZone(leadOf(m))} days">warn <input type="number" min="1" class="num" value="${leadOf(m)}" aria-label="Warn this many days before" data-edit="ms" data-field="leadDays" data-pid="${p.id}" data-mid="${m.id}"> d before</label>
+                <span class="due c-${lvl}">${m.done ? 'Done' : dueText(daysUntil(m.date))}</span></div>
                 <button class="iconbtn" data-action="del-ms" data-pid="${p.id}" data-mid="${m.id}" aria-label="Remove date"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
               </div>`;
             }).join('') : '<p class="hint pad">Add FAT, delivery, commissioning and handover dates. The tile turns amber, then red, as they get close.</p>'}</div>
@@ -918,13 +928,13 @@ function renderAlerts() {
   const dlg = $('#alertsDlg');
   dlg.innerHTML = `<div class="dlg">
     <div class="dlg-head"><div class="ttl"><h2>${items.length ? `${items.length} item${items.length > 1 ? 's' : ''} need attention` : 'Nothing critical'}</h2>
-      <div class="sub">Overdue, or due within ${data.settings.critDays} days</div></div>
+      <div class="sub">Overdue, or in the red zone of their warning time</div></div>
       <button class="btn icon" data-action="close" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
     <div class="dlg-body" style="padding:0">
       ${items.length ? `<ul class="alert-list">${items.map((i) => `<li><button data-action="open" data-id="${i.p.id}">
         <span class="pill c-${i.lvl}">${LEVELS[i.lvl].label}</span>
         <span style="min-width:0"><span class="what">${esc(i.name)}</span><br><span class="where">${esc(i.p.jobNo)} ${esc(i.p.name)} · ${i.kind}${i.who ? ' · ' + esc(i.who) : ''}</span></span>
-        <span class="due c-${i.lvl}">${dueText(i.days)}</span></button></li>`).join('')}</ul>` : '<p class="pad">All key dates and tasks are more than ' + data.settings.critDays + ' days away.</p>'}
+        <span class="due c-${i.lvl}">${dueText(i.days)}</span></button></li>`).join('')}</ul>` : '<p class="pad">No key dates or tasks are overdue or in their red zone.</p>'}
     </div>
     <div class="dlg-foot"><button class="btn" data-action="snooze">Don't show again today</button><button class="btn primary" data-action="close">OK</button></div>
   </div>`;
@@ -957,8 +967,10 @@ function renderSettings() {
       <div class="settings-sec">
         <h3>Warnings</h3>
         <div class="form-grid">
-          <label class="field" for="s-warn"><span>Amber when due within</span><div class="unit"><input id="s-warn" type="number" min="1" class="num" value="${s.warnDays}" data-edit="setting" data-field="warnDays"><em>days</em></div></label>
-          <label class="field" for="s-crit"><span>Red / popup when due within</span><div class="unit"><input id="s-crit" type="number" min="0" class="num" value="${s.critDays}" data-edit="setting" data-field="critDays"><em>days</em></div></label>
+          <label class="field full" for="s-lead"><span>Key dates: default warning for new dates</span><div class="unit"><input id="s-lead" type="number" min="1" class="num" value="${s.defaultLead}" data-edit="setting" data-field="defaultLead"><em>days</em></div></label>
+          <p class="hint full">Each key date has its own "warn X days before" in the job card. It turns amber from then, red for the last 20% of that time, and pulses red once overdue.</p>
+          <label class="field" for="s-warn"><span>Tasks: amber when due within</span><div class="unit"><input id="s-warn" type="number" min="1" class="num" value="${s.warnDays}" data-edit="setting" data-field="warnDays"><em>days</em></div></label>
+          <label class="field" for="s-crit"><span>Tasks: red when due within</span><div class="unit"><input id="s-crit" type="number" min="0" class="num" value="${s.critDays}" data-edit="setting" data-field="critDays"><em>days</em></div></label>
           <label class="field full" for="s-title"><span>Board title</span><input id="s-title" value="${esc(s.title)}" data-edit="setting" data-field="title"></label>
         </div>
       </div>
@@ -1033,7 +1045,7 @@ document.addEventListener('click', async (e) => {
       if (await askConfirm(`Delete the task "${t.title}"?`, 'Delete task')) { t.deleted = true; t.updatedAt = nowIso(); touch(p); save(); renderAll(); }
       break;
     case 'add-ms': {
-      const m = { id: uid(), name: '', date: '', done: false, updatedAt: nowIso() };
+      const m = { id: uid(), name: '', date: '', leadDays: data.settings.defaultLead || 14, done: false, updatedAt: nowIso() };
       p.milestones.push(m); touch(p); save(); renderProject();
       setTimeout(() => $(`[data-mid="${m.id}"][data-field="name"]`)?.focus(), 30);
       break;
@@ -1087,7 +1099,7 @@ document.addEventListener('change', (e) => {
   if (kind === 'me') { lsSet(LS_ME, val); return; }
   if (kind === 'setting') {
     const f = el.dataset.field;
-    data.settings[f] = (f === 'warnDays' || f === 'critDays') ? Math.max(0, Number(val) || 0) : val;
+    data.settings[f] = (f === 'warnDays' || f === 'critDays' || f === 'defaultLead') ? Math.max(0, Number(val) || 0) : val;
     data.settings.updatedAt = nowIso(); save(); renderAll(); return;
   }
   if (kind === 'person') { data.settings.team[Number(el.dataset.idx)][el.dataset.field] = val; data.settings.updatedAt = nowIso(); save(); renderHeader(); return; }
@@ -1106,7 +1118,7 @@ document.addEventListener('change', (e) => {
     p[f] = val;
   } else if (kind === 'ms') {
     const m = p.milestones.find((x) => x.id === el.dataset.mid);
-    m[el.dataset.field] = val; m.updatedAt = nowIso();
+    m[el.dataset.field] = el.dataset.field === 'leadDays' ? Math.max(1, Number(val) || 1) : val; m.updatedAt = nowIso();
   } else if (kind === 'task') {
     const t = p.tasks.find((x) => x.id === el.dataset.tid);
     const reassigned = el.dataset.field === 'assignee' && val && val !== t.assignee;
@@ -1175,22 +1187,22 @@ function sampleData() {
   const P = (jobNo, name, client, site, pm, phase, scope, ms, tasks, updates = [], scopeLog = [], extra = {}) => ({
     ...newProject(), jobNo, name, client, site, pm, phase, ...scope, ...extra,
     updatedAt: back(updates[0] ? updates[0][0] : 3),
-    milestones: ms.map(([n, d, done]) => ({ id: uid(), name: n, date: addDays(d), done: !!done, updatedAt: back(5) })),
+    milestones: ms.map(([n, d, done, lead]) => ({ id: uid(), name: n, date: addDays(d), done: !!done, leadDays: lead || 14, updatedAt: back(5) })),
     tasks: tasks.map(([title, assignee, d, status]) => ({ id: uid(), title, assignee, due: addDays(d), status, createdBy: pm, createdAt: back(10), updatedAt: back(2) })),
     updates: updates.map(([d, by, text]) => ({ id: uid(), at: back(d), updatedAt: back(d), by, text })),
     scopeLog: scopeLog.map(([d, by, label, from, to]) => ({ id: uid(), at: back(d), updatedAt: back(d), by, field: 'x', label, from, to, ack: false })),
   });
   const projects = [
     P('J-2417', 'Karratha Hub Power Station', 'Northline Mining', 'Karratha', 'Sam Taylor', 'Commissioning', { genQty: 4, genKva: 1500, fuelL: 2000, bessKwh: 1000, pvKwp: 1200 },
-      [['FAT', -40, 1], ['Delivery to site', -21, 1], ['Commissioning complete', -2], ['Handover', 12]],
+      [['FAT', -40, 1, 28], ['Delivery to site', -21, 1, 21], ['Commissioning complete', -2, 0, 14], ['Handover', 12, 0, 14]],
       [['Close out punch list items 1–14', 'Jordan Reid', -1, 'doing'], ['Submit commissioning report', 'Sam Taylor', 3, 'todo'], ['Load bank test sign-off', 'Alex Chen', -5, 'done']],
       [[0.6, 'Sam Taylor', 'Gen 3 governor tuning still outstanding. Client witness moved to Thursday.']]),
     P('J-2422', 'Exmouth Hybrid Upgrade', 'Gascoyne Utilities', 'Exmouth', 'Priya Nair', 'Install', { genQty: 3, genKva: 800, fuelL: 1500, bessKwh: 500, pvKwp: 750 },
-      [['Site install complete', 4], ['Commissioning', 18]],
+      [['Site install complete', 4, 0, 21], ['Commissioning', 18, 0, 28]],
       [['Confirm crane booking', 'Chris Walsh', 2, 'todo'], ['PV inverter firmware update', 'Alex Chen', 5, 'doing'], ['Cable schedule rev C', 'Jordan Reid', -3, 'done']],
       [[1, 'Priya Nair', 'Switchroom set on plinth. Waiting on crane for gen 2.']]),
     P('J-2430', 'Camp 3 Prime Power', 'Redstone Resources', 'Pilbara', 'Sam Taylor', 'Build / FAT', { genQty: 3, genKva: 500, fuelL: 3000 },
-      [['FAT', 11], ['Delivery to site', 25]],
+      [['FAT', 11, 0, 28], ['Delivery to site', 25, 0, 21]],
       [['Issue FAT procedure', 'Priya Nair', 6, 'doing'], ['Order spare AVRs', 'Morgan Lee', 9, 'todo']]),
     P('J-2435', 'Port Hedland Black Start', 'Pilbara Port Services', 'Port Hedland', 'Priya Nair', 'Design', { genQty: 2, genKva: 2000, fuelL: 5000 },
       [['Functional description issued', 20], ['Design review', 35]],
@@ -1198,20 +1210,20 @@ function sampleData() {
       [[2, 'Priya Nair', 'Client confirmed N+1 redundancy at the kick-off meeting.']],
       [[3, 'Sam Taylor', 'Generators', '1', '2'], [3, 'Sam Taylor', 'Sub-base fuel tank', '3,000 L', '5,000 L']]),
     P('J-2441', 'Carnarvon Load Bank Test', 'Gascoyne Utilities', 'Carnarvon', 'Chris Walsh', 'Commissioning', { genQty: 1, genKva: 1000 },
-      [['Test day', 6]],
+      [['Test day', 6, 0, 7]],
       [['Book load bank hire', 'Morgan Lee', 1, 'doing'], ['Prepare test sheets', 'Chris Walsh', 4, 'todo']]),
     P('J-2448', 'Data Centre Standby', 'Westgate Data', 'Perth', 'Alex Chen', 'Tender', { genQty: 6, genKva: 2500, fuelL: 1000 },
       [['Tender submission', 30]],
       [['Clarify fuel autonomy requirement', 'Alex Chen', 15, 'todo']],
       [[6, 'Alex Chen', 'Client paused the tender pending board approval.']], [], { onHold: true }),
     P('J-2452', 'Tom Price Microgrid Controls', 'Northline Mining', 'Tom Price', 'Sam Taylor', 'Procurement', { genQty: 5, genKva: 1250, fuelL: 2500, bessKwh: 2000, pvKwp: 3000 },
-      [['Controller order placed', 9], ['FAT', 60]],
+      [['Controller order placed', 9, 0, 14], ['FAT', 60]],
       [['Approve PLC BOM', 'Sam Taylor', 3, 'todo'], ['Request supplier lead times', 'Morgan Lee', -1, 'todo']]),
     P('J-2455', 'Newman Gen Replacement', 'Redstone Resources', 'Newman', 'Jordan Reid', 'Design', { genQty: 2, genKva: 1500, fuelL: 2000 },
       [['Functional description issued', 28], ['Design freeze', 45]],
       [['Site survey report', 'Jordan Reid', 16, 'doing']]),
     P('J-2460', 'Broome Hospital Standby', 'Kimberley Health', 'Broome', 'Priya Nair', 'Delivery', { genQty: 2, genKva: 750, fuelL: 1200 },
-      [['Delivery to site', 13], ['Install complete', 30]],
+      [['Delivery to site', 13, 0, 28], ['Install complete', 30]],
       [['Oversize transport permits', 'Chris Walsh', 12, 'doing'], ['ATS interface drawings', 'Alex Chen', 20, 'todo']]),
     P('J-2463', 'Onslow Solar-Diesel Study', 'Ashburton Shire', 'Onslow', 'Alex Chen', 'Tender', { genQty: 2, genKva: 400, bessKwh: 250, pvKwp: 500 },
       [['Study report', 50]],

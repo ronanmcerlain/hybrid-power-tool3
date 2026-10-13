@@ -1,6 +1,6 @@
 # Project Pinboard
 
-A one-page "smart pin board" for running several jobs at once. Each job is a tile showing its gensets, sub-base fuel tank, BESS and PV, plus its next key date and open tasks. Tiles change colour as dates get close, a popup lists anything critical, and scope changes are flagged until someone reviews them.
+A one-page "smart pin board" for running several jobs at once. Each job is a tile showing its job number and name, gensets (qty × kVA), sub-base fuel tank, status colour, next critical date and open task count. Everything else lives on the job card. Tiles change colour as dates get close, a popup lists anything critical, and scope changes are flagged until someone reviews them.
 
 It is a single file, `index.html`, with no install, no server and no database.
 
@@ -9,7 +9,7 @@ It is a single file, `index.html`, with no install, no server and no database.
 | Need | How the board handles it |
 |---|---|
 | Overview at a glance | Up to 10 tiles per board page (5 × 2 on a wide screen). The most urgent jobs sort to the top left. The header counts what is critical, due soon, scope-changed and on hold, and each count works as a filter. |
-| Critical date warnings | Each job has key dates (FAT, delivery, commissioning, handover and so on), and each task has a due date. The tile pin and border go **amber** when something is due within 14 days, **red-orange** within 7 days and **pulsing red** once it is overdue. A popup lists every critical or overdue item when the board opens, and again each new day. Both thresholds can be changed in Settings. |
+| Critical date warnings | Each key date (FAT, delivery, commissioning, handover and so on) has its own **warn X days before** setting. The tile goes **amber** from that point, **red-orange** for the last 20% of that time (e.g. the last 6 days of a 28-day warning) and **pulsing red** once overdue. Task due dates use one board-wide setting (amber at 14 days, red at 7 days by default). A popup lists every red or overdue item when the board opens, and again each new day. |
 | Details and tasks | Click a tile to open its job card. You can edit details, scope and key dates, add tasks, post quick updates and see scope history. Every field saves as soon as you leave it. There is no Save button. |
 | Assign a task and email the person | Type the task, pick the person, set a due date and press **Add task**. The person gets an email (see [Email options](#email-options)). The envelope button on a task sends a reminder. |
 | Task status | Click the status pill to cycle **To do → In progress → Done**. |
